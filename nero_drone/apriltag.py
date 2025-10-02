@@ -36,6 +36,11 @@ print("Press 'q' to quit.")
 total_frames = 0
 frames_detectados = 0
 tempos_processamento = []
+
+# Para FPS
+frame_count = 0
+last_time = time.time()
+fps = 0.0
 # -----------------------------------------
 
 while True:
@@ -46,6 +51,17 @@ while True:
     total_frames += 1
     frame_undistorted = cv2.undistort(frame, matrix_coefficients, distortion_coefficients)
     gray = cv2.cvtColor(frame_undistorted, cv2.COLOR_BGR2GRAY)
+
+    # ---- Calcular FPS ----
+    frame_count += 1
+    now = time.time()
+    elapsed = now - last_time
+    if elapsed >= 1.0:  # actualizar cada segundo
+        fps = frame_count / elapsed
+        print(f"FPS: {fps:.2f}")
+        frame_count = 0
+        last_time = now
+    # ----------------------
 
     det_start = time.time()
     tags = detector.detect(gray,
@@ -70,17 +86,14 @@ while True:
             if np.linalg.det(R_ct) < 0:
                 R_ct[:, 2] *= -1
 
-            # Build homogeneous matrix
             cam_H_tag = np.eye(4)
             cam_H_tag[:3, :3] = R_ct
             cam_H_tag[:3, 3] = tvec.flatten()
             pos_tag = cam_H_tag[:3, 3]
 
-            # Euler angles
             r = R.from_matrix(R_ct)
             roll, pitch, yaw = r.as_euler('xyz', degrees=True)
 
-            # Distance
             dist_total = np.linalg.norm(pos_tag)
 
             print(f"\n--- TAG {tag_id} ---")
@@ -90,7 +103,6 @@ while True:
             print(f"Euler (Roll,Pitch,Yaw) [°]: {roll:.2f}, {pitch:.2f}, {yaw:.2f}")
             print(f"Distance: {dist_total:.3f} m")
 
-            # Draw tag outline
             corners = tag.corners.astype(int)
             for i in range(4):
                 cv2.line(frame_undistorted, tuple(corners[i]),
@@ -112,10 +124,13 @@ while True:
                                           matrix_coefficients, distortion_coefficients)
             imgpts = np.int32(imgpts).reshape(-1, 2)
 
-            # X (blue), Y (green), Z (red)
             cv2.line(frame_undistorted, tuple(imgpts[0]), tuple(imgpts[1]), (255, 0, 0), 3)
             cv2.line(frame_undistorted, tuple(imgpts[0]), tuple(imgpts[2]), (0, 255, 0), 3)
             cv2.line(frame_undistorted, tuple(imgpts[0]), tuple(imgpts[3]), (0, 0, 255), 3)
+
+    # Mostrar FPS en la ventana
+    cv2.putText(frame_undistorted, f"FPS: {fps:.2f}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
     cv2.imshow("Camera", frame_undistorted)
     if cv2.waitKey(1) & 0xFF == ord('q'):

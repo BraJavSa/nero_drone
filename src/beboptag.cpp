@@ -1,71 +1,73 @@
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
 #include <apriltag/apriltag.h>
 #include <apriltag/tag36h11.h>
 #include <cmath>
-#include <chrono>
 
-class AprilTagNode : public rclcpp::Node {
+class BebopTagNode : public rclcpp::Node {
 public:
-    AprilTagNode() : Node("apriltag_node") {
-        cap_.open(0);
-        if (!cap_.isOpened()) {
-            RCLCPP_ERROR(this->get_logger(), "Could not open camera");
-            rclcpp::shutdown();
-            return;
-        }
-
-        // Detector
+    BebopTagNode() : Node("bebop_tag_node") {
+        // Detector de AprilTags
         tf_ = tag36h11_create();
         td_ = apriltag_detector_create();
         apriltag_detector_add_family(td_, tf_);
 
-        // Camera intrinsics
-        cameraMatrix_ = (cv::Mat1d(3,3) << 1296.0, 0, 679.1841,
-                                           0, 1297.8, 352.7879,
-                                           0, 0, 1);
-        distCoeffs_ = (cv::Mat1d(1,5) << -0.1501, -0.1480, 0, 0, 0);
+        // Suscriptores
+        sub_info_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+            "/bebop/camera/camera_info", 10,
+            std::bind(&BebopTagNode::camera_info_callback, this, std::placeholders::_1));
 
-        tag_size_ = 0.12; // meters
+        sub_image_ = this->create_subscription<sensor_msgs::msg::Image>(
+            "/bebop/camera/image_raw", 10,
+            std::bind(&BebopTagNode::image_callback, this, std::placeholders::_1));
 
-        // Timer loop 30Hz
-        timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(33),
-            std::bind(&AprilTagNode::process_frame, this)
-        );
+        tag_size_ = 0.12; // metros
 
-        // Inicializar variables para FPS
-        last_time_ = std::chrono::steady_clock::now();
-        frame_count_ = 0;
-        fps_ = 0.0;
-
-        RCLCPP_INFO(this->get_logger(), "AprilTag node started with pose estimation.");
+        RCLCPP_INFO(this->get_logger(), "Bebop AprilTag node started.");
     }
 
-    ~AprilTagNode() {
+    ~BebopTagNode() {
         apriltag_detector_destroy(td_);
         tag36h11_destroy(tf_);
     }
 
 private:
-    void process_frame() {
-        cv::Mat frame;
-        cap_ >> frame;
-        if (frame.empty()) return;
+    void camera_info_callback(const sensor_msgs::msg::CameraInfo::SharedPtr msg) {
+        if (has_camera_info_) return;
+        RCLCPP_INFO(this->get_logger(), "Camera info received.");
 
-        // ---- Calcular FPS ----
-        frame_count_++;
-        auto now = std::chrono::steady_clock::now();
-        double elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_time_).count();
+        // Matriz intrínseca
+        cameraMatrix_ = (cv::Mat1d(3,3) <<
+            msg->k[0], msg->k[1], msg->k[2],
+            msg->k[3], msg->k[4], msg->k[5],
+            msg->k[6], msg->k[7], msg->k[8]);
 
-        if (elapsed >= 1.0) {
-            fps_ = frame_count_ / elapsed;
-            RCLCPP_INFO(this->get_logger(), "FPS: %.2f", fps_);
-            frame_count_ = 0;
-            last_time_ = now;
+        // Distorsión
+        distCoeffs_ = cv::Mat(msg->d).clone();
+
+        has_camera_info_ = true;
+    }
+
+    void image_callback(const sensor_msgs::msg::Image::SharedPtr msg) {
+        if (!has_camera_info_) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "Waiting for camera info...");
+            return;
         }
-        // ----------------------
 
+        // Convertir a OpenCV
+        cv::Mat frame;
+        try {
+            frame = cv_bridge::toCvCopy(msg, "bgr8")->image;
+        } catch (cv_bridge::Exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
+            return;
+        }
+
+        // ---- AprilTag ----
         cv::Mat gray;
         cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
 
@@ -78,10 +80,7 @@ private:
 
             double s = tag_size_ / 2.0;
             std::vector<cv::Point3f> objectPoints = {
-                cv::Point3f(-s, -s, 0),
-                cv::Point3f( s, -s, 0),
-                cv::Point3f( s,  s, 0),
-                cv::Point3f(-s,  s, 0)
+                {-s, -s, 0}, { s, -s, 0}, { s,  s, 0}, { -s,  s, 0}
             };
 
             std::vector<cv::Point2f> imagePoints = {
@@ -97,8 +96,8 @@ private:
             cv::Mat R;
             cv::Rodrigues(rvec, R);
 
-            double sy = std::sqrt(R.at<double>(0,0) * R.at<double>(0,0) +
-                                  R.at<double>(1,0) * R.at<double>(1,0));
+            double sy = std::sqrt(R.at<double>(0,0)*R.at<double>(0,0) +
+                                  R.at<double>(1,0)*R.at<double>(1,0));
             bool singular = sy < 1e-6;
 
             double roll, pitch, yaw;
@@ -121,51 +120,51 @@ private:
                         dist,
                         roll*180/M_PI, pitch*180/M_PI, yaw*180/M_PI);
 
+            // Dibujar contorno
             for (int j = 0; j < 4; j++) {
                 cv::line(frame, imagePoints[j], imagePoints[(j+1)%4], {0,255,0}, 2);
             }
             cv::putText(frame, std::to_string(det->id),
                         imagePoints[0], cv::FONT_HERSHEY_SIMPLEX, 0.7, {0,0,255}, 2);
 
+            // Dibujar ejes 3D
             std::vector<cv::Point3f> axisPoints = {
                 {0,0,0}, {0.1,0,0}, {0,0.1,0}, {0,0,0.1}
             };
             std::vector<cv::Point2f> imgpts;
             cv::projectPoints(axisPoints, rvec, tvec, cameraMatrix_, distCoeffs_, imgpts);
 
-            cv::line(frame, imgpts[0], imgpts[1], {255,0,0}, 3); // X blue
-            cv::line(frame, imgpts[0], imgpts[2], {0,255,0}, 3); // Y green
-            cv::line(frame, imgpts[0], imgpts[3], {0,0,255}, 3); // Z red
+            cv::line(frame, imgpts[0], imgpts[1], {255,0,0}, 3);
+            cv::line(frame, imgpts[0], imgpts[2], {0,255,0}, 3);
+            cv::line(frame, imgpts[0], imgpts[3], {0,0,255}, 3);
         }
 
         apriltag_detections_destroy(detections);
 
-        // Mostrar FPS en la ventana
-        cv::putText(frame, "FPS: " + std::to_string(fps_), {10,30},
-                    cv::FONT_HERSHEY_SIMPLEX, 1.0, {255,255,0}, 2);
-
-        cv::imshow("Camera", frame);
+        cv::imshow("Bebop Camera", frame);
         if (cv::waitKey(1) == 'q') rclcpp::shutdown();
     }
 
-    cv::VideoCapture cap_;
+    // Suscripciones
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_info_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_image_;
+
+    // Detector
     apriltag_family_t *tf_;
     apriltag_detector_t *td_;
-    rclcpp::TimerBase::SharedPtr timer_;
 
+    // Calibración
     cv::Mat cameraMatrix_;
     cv::Mat distCoeffs_;
-    double tag_size_;
+    bool has_camera_info_ = false;
 
-    // Variables para medir FPS
-    std::chrono::steady_clock::time_point last_time_;
-    int frame_count_;
-    double fps_;
+    // Parámetros
+    double tag_size_;
 };
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<AprilTagNode>());
+    rclcpp::spin(std::make_shared<BebopTagNode>());
     rclcpp::shutdown();
     return 0;
 }
