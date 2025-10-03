@@ -1,0 +1,27 @@
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.1
+
+    two_d_mode: false          # <- para usar z y vz
+    publish_tf: true
+
+    # Odometry del Bebop: usa orientación (r,p,y) y yaw rate; NO uses posiciones (x,y,z)
+    odom0: /bebop/odom
+    odom0_config: [false, false, false,   # x, y, z   (NO)
+                   true,  true,  true,    # roll, pitch, yaw (SÍ)
+                   false, false, false,   # vx, vy, vz (NO: vienen de twist0)
+                   false, false, true,    # vroll, vpitch, vyaw (usa yaw rate si es fiable)
+                   false, false, false]   # ax, ay, az
+
+    # Optical flow + vz desde odom en el mismo TwistStamped
+    twist0: /oflow/vel
+    twist0_config: [true,  true,  true,   # vx, vy, vz  (SÍ, las 3)
+                    false, false, false,  # vroll, vpitch, vyaw
+                    false, false, false]  # ax, ay, az
+
+    base_link_frame: base_link
+    odom_frame: odom
+    world_frame: odom
+
+    print_diagnostics: true

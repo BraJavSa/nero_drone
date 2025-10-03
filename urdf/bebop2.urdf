@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<robot name="bebop2">
+
+  <!-- ========================= -->
+  <!-- Cuerpo principal -->
+  <!-- ========================= -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <!-- Ajusta el scale si el mesh está en metros reales, déjalo en 1 1 1 -->
+        <mesh filename="package://nero_drone/meshes/bebop.dae" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- ========================= -->
+  <!-- Hélices -->
+  <!-- ========================= -->
+
+  <!-- Front Right (CW) -->
+  <link name="propeller_front_right">
+    <visual>
+      <geometry>
+        <mesh filename="package://nero_drone/meshes/propeller_cw.dae" scale="0.0007 0.0007 0.0007"/>
+      </geometry>
+      <material name="almost_white">
+        <color rgba="0.95 0.95 0.95 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="joint_propeller_front_right" type="fixed">
+    <parent link="base_link"/>
+    <child link="propeller_front_right"/>
+    <origin xyz="0.08440513 -0.09784210 0.03" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Front Left (CCW) -->
+  <link name="propeller_front_left">
+    <visual>
+      <geometry>
+        <mesh filename="package://nero_drone/meshes/propeller_ccw.dae" scale="0.0007 0.0007 0.0007"/>
+      </geometry>
+      <material name="almost_white">
+        <color rgba="0.95 0.95 0.95 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="joint_propeller_front_left" type="fixed">
+    <parent link="base_link"/>
+    <child link="propeller_front_left"/>
+    <origin xyz="0.08440513 0.09784210 0.03" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Back Right (CCW) -->
+  <link name="propeller_back_right">
+    <visual>
+      <geometry>
+        <mesh filename="package://nero_drone/meshes/propeller_ccw.dae" scale="0.0007 0.0007 0.0007"/>
+      </geometry>
+      <material name="dark_gray">
+        <color rgba="0.1 0.1 0.1 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="joint_propeller_back_right" type="fixed">
+    <parent link="base_link"/>
+    <child link="propeller_back_right"/>
+    <origin xyz="-0.06853580 -0.09784210 0.03" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Back Left (CW) -->
+  <link name="propeller_back_left">
+    <visual>
+      <geometry>
+        <mesh filename="package://nero_drone/meshes/propeller_cw.dae" scale="0.0007 0.0007 0.0007"/>
+      </geometry>
+      <material name="dark_gray">
+        <color rgba="0.1 0.1 0.1 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="joint_propeller_back_left" type="fixed">
+    <parent link="base_link"/>
+    <child link="propeller_back_left"/>
+    <origin xyz="-0.06853580 0.09784210 0.03" rpy="0 0 0"/>
+  </joint>
+
+</robot>
