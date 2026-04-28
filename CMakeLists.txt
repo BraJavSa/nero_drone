@@ -99,6 +99,7 @@ install(TARGETS
 # ---------------- Python nodes, Launch, Config, URDF ----------------
 install(PROGRAMS
   neroControl/graphical.py neroControl/apriltag.py
+  neroControl/graphical_no_filter.py
   neroControl/bebop_control_gui.py
   neroControl/ref_pos.py neroControl/controlador.py
   neroControl/sim.py neroControl/sim120.py
@@ -109,6 +110,13 @@ install(PROGRAMS
   neroControl/ref_trayectory.py
   neroControl/pypbsv.py
   neroControl/pyibsv.py
+  neroControl/drone_optimizer.py
+  neroControl/optimizador2.py
+  neroControl/supertwisting.py
+  neroControl/modelo_basado.py
+  neroControl/fast_optimizer.py
+  neroControl/entrenador_ia.py
+  neroControl/bebop_env.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

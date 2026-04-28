@@ -113,7 +113,12 @@ class BebopVisualizer:
         for i, (c, m, r, lbl) in enumerate([('cmd_linx', 'linx', 'vxd_b', 'Vx [m/s]'), ('cmd_liny', 'liny', 'vyd_b', 'Vy [m/s]'), ('cmd_linz', 'linz', 'vzd_b', 'Vz [m/s]'), ('cmd_angz', 'yaw_rate', 'wyawd', 'Yaw rate [rad/s]')]):
             axes[i, 1].plot(t, df[c], ':', alpha=0.6, label='Command')
             axes[i, 1].plot(t, df[m], label='Measured')
+            if r in df.columns: axes[i, 1].plot(t, df[r], '--', label='Reference')
             axes[i, 1].set_ylabel(lbl); axes[i, 1].grid(True, alpha=0.7); axes[i, 1].set_xlim(t_start, t_end)
+            if i < 3:
+                axes[i, 1].set_ylim(-1.1, 1.1)
+            else:
+                axes[i, 1].set_ylim(-1.76, 1.76)
             axes[i, 1].legend(loc='upper right', fontsize='x-small')
 
         plt.tight_layout(rect=[0, 0.02, 1, 0.94])

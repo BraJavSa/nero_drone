@@ -4,10 +4,10 @@ from rclpy.node import Node
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float64MultiArray
 import matplotlib.pyplot as plt
-import tf_transformations
+from matplotlib.animation import FuncAnimation
 import threading
 import numpy as np
-from math import cos, sin
+from math import cos, sin, atan2
 
 class RealTimePlot(Node):
     """
@@ -57,19 +57,15 @@ class RealTimePlot(Node):
             if i == 0: ax.legend(loc='upper right', fontsize='x-small')
 
         self.fig.tight_layout()
-        self.fig.canvas.draw()
-        self.bg = self.fig.canvas.copy_from_bbox(self.fig.bbox)
-        
-        self.create_timer(1.0/30.0, self.update_plot)
+        self.ani = FuncAnimation(self.fig, self.update_plot, interval=33, blit=True, cache_frame_data=False)
 
     def odom_callback(self, msg: Odometry):
         # 1. Extraction of Orientation (Yaw)
         q = msg.pose.pose.orientation
-        _, _, yaw = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
-        yaw_norm = np.arctan2(np.sin(yaw), np.cos(yaw))
+        raw_yaw = atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+        yaw = atan2(sin(raw_yaw), cos(raw_yaw))
 
         # 2. Body-to-Inertial Velocity Transformation
-        # v_global = F(yaw) * v_body
         v_body = np.array([
             msg.twist.twist.linear.x,
             msg.twist.twist.linear.y,
@@ -92,7 +88,7 @@ class RealTimePlot(Node):
                 msg.pose.pose.position.x, 
                 msg.pose.pose.position.y, 
                 msg.pose.pose.position.z,
-                yaw_norm,
+                yaw,
                 v_global[0], 
                 v_global[1], 
                 v_global[2], 
@@ -104,22 +100,21 @@ class RealTimePlot(Node):
 
     def ref_callback(self, msg: Float64MultiArray):
         if len(msg.data) < 8: return
+        
+        ref_arr = np.array(msg.data)
+        ref_arr[3] = atan2(sin(ref_arr[3]), cos(ref_arr[3]))
+
         with self.lock:
             # The reference is already in global frame from the MPC
             self.ref_buf = np.roll(self.ref_buf, -1, axis=1)
-            self.ref_buf[:, -1] = msg.data
+            self.ref_buf[:, -1] = ref_arr
 
-    def update_plot(self):
-        self.fig.canvas.restore_region(self.bg)
+    def update_plot(self, frame):
         with self.lock:
             for i in range(8):
                 self.lines_pos[i].set_ydata(self.data_buf[i])
                 self.lines_ref[i].set_ydata(self.ref_buf[i])
-                self.axs[i % 4, i // 4].draw_artist(self.lines_pos[i])
-                self.axs[i % 4, i // 4].draw_artist(self.lines_ref[i])
-
-        self.fig.canvas.blit(self.fig.bbox)
-        self.fig.canvas.flush_events()
+        return self.lines_pos + self.lines_ref
 
 def main(args=None):
     rclpy.init(args=args)

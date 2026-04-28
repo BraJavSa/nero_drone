@@ -1,17 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-"""
-@file neroControl_node.py
-@brief Dynamic control for Bebop with Feedforward Gain (Kd) integration.
-@details Adds Kd gains to scale the influence of reference velocities, 
-         allowing full suppression of motion when gains are set to zero.
-@author Generated for ROS2 Jazzy Development
-@date 2026-02-06
-"""
-
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Float64MultiArray, Bool
@@ -21,6 +12,7 @@ from math import sin, cos, atan2
 
 class Position:
     def __init__(self):
+
         self.w_X = np.zeros(8)
         self.w_dX = np.zeros(4)      
         self.w_Xd = np.zeros(4)      
@@ -38,12 +30,12 @@ class SC:
     def __init__(self):
         self.b_Ud = np.zeros(4)      
         self.w_Ur = np.zeros(4)      
+        self.b_Ud_ant = np.zeros(4)  # Estado anterior para el filtro pasa bajos
 
 class Bebop:
     def __init__(self, node: Node):
         self.node = node
-        self.count= False
-        frecuency = 60
+        frecuency = 30
         self.dt = 1/frecuency               
         self.pPos = Position()
         self.pPar = Parameters()
@@ -54,47 +46,43 @@ class Bebop:
         self.first_ref = True
         self.w_last_ref = np.zeros(8)
 
-        # --- VALORES INICIALES (CALIBRADOS) ---
-        self.opt = 1 #opt 1 position, opt 2 trayectory, opt 3 visual without velocity, opt 4 visual tracking velocity control
-        initial_values = {}
-
-        if self.opt == 1:
-            initial_values = {
-                'ksp_x': 0.7, 'ksp_y': 0.7, 'ksp_z': 1.8, 'ksp_psi': 3.0,
-                'ksd_x': 0.8, 'ksd_y': 0.8, 'ksd_z': 4.5, 'ksd_psi': 5.5,
-                'kp_x': 0.8,  'kp_y': 0.8,  'kp_z': 0.6,  'kp_psi': 0.7,
-                'kd_x': 0.0,  'kd_y': 0.0,  'kd_z': 0.0,  'kd_psi': 0.0,
-                'kg1': 1.5, 'kg2': 1.5, 
-            }
-        elif self.opt == 2:
-            initial_values = {
-                'ksp_x': 0.85, 'ksp_y': 0.95, 'ksp_z': 1.5, 'ksp_psi': 2.8,
-                'ksd_x': 0.2,  'ksd_y': 0.2,  'ksd_z': 2.0, 'ksd_psi': 2.5,
-                'kp_x': 0.6,   'kp_y': 0.6,   'kp_z': 1.5,  'kp_psi': 2.5,
-                'kd_x': 1.0,   'kd_y': 1.0,   'kd_z': 1.0,  'kd_psi': 1.0
-            }
-        elif self.opt == 3:
-            initial_values = {
-                'ksp_x': 0.15, 'ksp_y': 0.15, 'ksp_z': 1.5, 'ksp_psi': 2.8,
-                'ksd_x': 0.5,  'ksd_y': 0.5,  'ksd_z': 2.0, 'ksd_psi': 2.5,
-                'kp_x': 2.0,   'kp_y': 2.0,   'kp_z': 1.5,  'kp_psi': 2.5,
-                'kd_x': 0.0,   'kd_y': 0.0,   'kd_z': 0.0,  'kd_psi': 0.0
-            }
-        else: 
-            initial_values = {
+        self.opt = 2
+        self.base_opt = self.opt
+        
+        self.opt_params = {
+            1: {
+                'ksp_x': 0.6,  'ksp_y': 1.2,  'ksp_z': 1.2527,  'ksp_psi': 5.0911,
+                'ksd_x': 1.0,  'ksd_y': 1.0,  'ksd_z': 4.5484,  'ksd_psi': 1.2455,
+                'kp_x': 2.0,  'kp_y': 2.0,  'kp_z': 1.8747,  'kp_psi': 2.7967,
+                'kd_x': 0.001,  'kd_y': 0.001,  'kd_z': 0.0000,  'kd_psi': 0.0000,
+            },
+            2: {
+                'ksp_x': 0.1321,  'ksp_y': 0.9917,  'ksp_z': 1.2527,  'ksp_psi': 5.0911,
+                'ksd_x': 0.3908,  'ksd_y': 0.6230,  'ksd_z': 4.5484,  'ksd_psi': 1.2455,
+                'kp_x': 1.6856,  'kp_y': 1.2564,  'kp_z': 1.8747,  'kp_psi': 2.7967,
+                'kd_x': 1.0,  'kd_y': 1.0,  'kd_z': 1.0,  'kd_psi': 1.0,
+            },
+            3: {
+                'ksp_x': 0.6,  'ksp_y': 1.2,  'ksp_z': 1.2527,  'ksp_psi': 5.0911,
+                'ksd_x': 1.0,  'ksd_y': 1.0,  'ksd_z': 4.5484,  'ksd_psi': 1.2455,
+                'kp_x': 2.0,  'kp_y': 2.0,  'kp_z': 1.8747,  'kp_psi': 2.7967,
+                'kd_x': 1.0,  'kd_y': 1.0,  'kd_z': 1.0,  'kd_psi': 1.0,
+            },
+            4: {
                 'ksp_x': 0.15, 'ksp_y': 0.15, 'ksp_z': 1.5, 'ksp_psi': 1.8,
                 'ksd_x': 0.5,  'ksd_y': 0.5,  'ksd_z': 2.0, 'ksd_psi': 2.5,
                 'kp_x': 2.0,   'kp_y': 2.0,   'kp_z': 1.5,  'kp_psi': 1.5,
-                'kd_x': 0.05,   'kd_y': 0.05,   'kd_z': 0.0,  'kd_psi': 0.0
+                'kd_x': 0.05,  'kd_y': 0.05,  'kd_z': 0.0,  'kd_psi': 0.0
             }
+        }
+        
+        initial_values = self.opt_params.get(self.opt, self.opt_params[4])
 
-        # Declaración de todos los parámetros individuales
         for name, value in initial_values.items():
             self.node.declare_parameter(name, value)
         
         self.node.add_on_set_parameters_callback(self.parameters_callback)
 
-        # Comunicaciones
         self.sub_odom = node.create_subscription(Odometry, "/odometry/filtered", self.odom_callback, 10)
         self.sub_ref = node.create_subscription(Float64MultiArray, "/bebop/ref_vec", self.ref_callback, 10)
         self.sub_is_flying = node.create_subscription(Bool, "/bebop/is_flying", self.is_flying_callback, 10)
@@ -133,13 +121,10 @@ class Bebop:
     def cController(self):
         if not self.ref_received: return
 
-        # Lectura de parámetros (incluyendo Kd)
         Ksp = np.diag([self.node.get_parameter(f'ksp_{a}').value for a in ['x','y','z','psi']])
         Ksd = np.diag([self.node.get_parameter(f'ksd_{a}').value for a in ['x','y','z','psi']])
         Kp  = np.diag([self.node.get_parameter(f'kp_{a}').value for a in ['x','y','z','psi']])
         Kd  = np.diag([self.node.get_parameter(f'kd_{a}').value for a in ['x','y','z','psi']])
-        Kg1  = self.node.get_parameter('kg1').value
-        Kg2  = self.node.get_parameter('kg2').value    
         Ku = np.diag([self.pPar.Model_simp[0], self.pPar.Model_simp[2], self.pPar.Model_simp[4], self.pPar.Model_simp[6]])
         Kv = np.diag([self.pPar.Model_simp[1], self.pPar.Model_simp[3], self.pPar.Model_simp[5], self.pPar.Model_simp[7]])
         
@@ -151,44 +136,61 @@ class Bebop:
         self.pPos.w_Xtil[0:3] = w_Xtil_raw[0:3]
         self.pPos.w_Xtil[3] = w_Xtil_raw[3]
 
-        # --- APLICACIÓN DE KD A LA VELOCIDAD DE REFERENCIA ---
-        w_Ur_ant = np.copy(self.pSC.w_Ur)
-        if self.opt == 1 and np.linalg.norm(w_Xtil_raw[0:2]) < 0.11:
+        # Lógica de cambio dinámico de controlador basado en el error
+        error_posicion = float(np.linalg.norm(self.pPos.w_Xtil[0:3]))
+        
+        if self.base_opt == 2:
+            if self.opt == 2 and error_posicion > 0.40:
+                self.opt = 3
+                # Guardar los valores actuales del optimizador antes de cambiarlos
+                self.saved_opt2_params = {
+                    name: self.node.get_parameter(name).value 
+                    for name in self.opt_params[2].keys()
+                }
+                new_params = [Parameter(k, Parameter.Type.DOUBLE, v) for k, v in self.opt_params[3].items()]
+                self.node.set_parameters(new_params)
+                self.node.get_logger().info(f"Error alto ({error_posicion:.2f}m > 0.40m): Cambiando a opt=3")
             
-            w_Ur = (Kd @ w_dXd) + Ksp @ np.tanh(Kp*Kg2 @ self.pPos.w_Xtil)
-        else:
-            w_Ur = (Kd @ w_dXd) + Ksp @ np.tanh(Kp @ self.pPos.w_Xtil)
-        # -----------------------------------------------------
+            elif self.opt == 3 and error_posicion < 0.05:
+                self.opt = 2
+                # Restaurar los valores exactos que tenía opt=2
+                if hasattr(self, 'saved_opt2_params'):
+                    new_params = [Parameter(k, Parameter.Type.DOUBLE, v) for k, v in self.saved_opt2_params.items()]
+                    self.node.set_parameters(new_params)
+                    self.node.get_logger().info(f"Error bajo ({error_posicion:.2f}m < 0.05m): Regresando a opt=2")
+
+        w_Ur_ant = np.copy(self.pSC.w_Ur)
+        w_Ur = (Kd @ w_dXd) + Ksp @ np.tanh(Kp @ self.pPos.w_Xtil)
 
         w_dUr = (w_Ur - w_Ur_ant) / self.dt
         self.pSC.w_Ur = np.copy(w_Ur)
 
         w_yaw = w_X[3]
         w_F_b = np.array([[cos(w_yaw), -sin(w_yaw), 0, 0], [sin(w_yaw), cos(w_yaw), 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
-        if self.opt == 1 and np.linalg.norm(w_Xtil_raw[0:2]) < 0.11:
-              Ksd1 = np.copy(Ksd)
-              Ksd1 [0:2] = Ksd [0:2] * Kg1 * (1+np.linalg.norm(w_Xtil_raw[0:2]))
-              self.pSC.b_Ud = np.linalg.inv(w_F_b @ Ku) @ (w_dUr + Ksd1 @ (w_Ur - w_dX) + Kv @ w_dX)
+        b_Ud_raw = np.linalg.inv(w_F_b @ Ku) @ (w_dUr + Ksd @ (w_Ur - w_dX) + Kv @ w_dX)
+        
+        # Filtro pasa bajos para la acción de control
+        if self.opt != 1:
+            alpha = 0.1  # Peso del valor actual reducido de 0.3 a 0.1 para un filtrado mucho más fuerte
+            self.pSC.b_Ud = alpha * b_Ud_raw + (1.0 - alpha) * self.pSC.b_Ud_ant
+            self.pSC.b_Ud_ant = np.copy(self.pSC.b_Ud)
         else:
-            self.pSC.b_Ud = np.linalg.inv(w_F_b @ Ku) @ (w_dUr + Ksd @ (w_Ur - w_dX) + Kv @ w_dX)
+            self.pSC.b_Ud = np.copy(b_Ud_raw)
 
     def rSendControlSignals(self):
         if not self.ref_received or not self.is_flying: return
         b_cmd = Twist()
-        if self.count:
-            b_cmd.linear.x = float(np.clip(self.pSC.b_Ud[0], -self.pPar.b_uSat[0], self.pPar.b_uSat[0]))
-            b_cmd.linear.y = float(np.clip(self.pSC.b_Ud[1], -self.pPar.b_uSat[1], self.pPar.b_uSat[1]))
-            b_cmd.linear.z = float(np.clip(self.pSC.b_Ud[2], -self.pPar.b_uSat[2], self.pPar.b_uSat[2]))
-            b_cmd.angular.z = float(np.clip(self.pSC.b_Ud[3], -self.pPar.b_uSat[3], self.pPar.b_uSat[3]))
-            self.pub_cmd.publish(b_cmd)
-            self.count= False
-        else: self.count= True
+        b_cmd.linear.x = float(np.clip(self.pSC.b_Ud[0], -self.pPar.b_uSat[0], self.pPar.b_uSat[0]))
+        b_cmd.linear.y = float(np.clip(self.pSC.b_Ud[1], -self.pPar.b_uSat[1], self.pPar.b_uSat[1]))
+        b_cmd.linear.z = float(np.clip(self.pSC.b_Ud[2], -self.pPar.b_uSat[2], self.pPar.b_uSat[2]))
+        b_cmd.angular.z = float(np.clip(self.pSC.b_Ud[3], -self.pPar.b_uSat[3], self.pPar.b_uSat[3]))
+        self.pub_cmd.publish(b_cmd)
 
 class NeroDroneNode(Node):
     def __init__(self):
         super().__init__("neroControl_node")
         self.drone = Bebop(self)
-        time = 1/60
+        time = 1/30
         self.create_timer(time, self.control_loop)
 
     def control_loop(self):
