@@ -1,26 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-@file pypbsv.py
-@brief PBVS control node with Alpha-Beta filtering in the global frame.
-@details Estimates target velocities (vx, vy) relative to the 'odom' frame 
-         using an Alpha-Beta observer to ensure world-coordinate references.
-@author Generated for ROS2 Jazzy Development
-@date 2026-02-06
-"""
-
+# Position-Based Visual Servoing (PBVS) control node with Alpha-Beta filtering for Bebop drone
 import rclpy
 from rclpy.node import Node
 import cv2
 import numpy as np
 import math
-
 from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import TransformStamped, Pose
 from cv_bridge import CvBridge
-
 import tf2_ros
 import tf2_geometry_msgs
 from tf_transformations import (
@@ -35,38 +23,26 @@ from pupil_apriltags import Detector
 class BebopTagPBVS(Node):
     def __init__(self):
         super().__init__('bebop_tag_pbvs')
-
         self.detector = Detector(families='tag36h11')
         self.bridge = CvBridge()
         self.tag_size = 0.16
         self.has_camera_info = False
         self.camera_matrix = None
         self.dist_coeffs = None
-
-        # --- Parámetros del Filtro Alpha-Beta ---
-        # Alpha: Confianza en la medición de posición (0.0 a 1.0)
-        # Beta: Ganancia para la estimación de la velocidad
         self.alpha = 0.85
         self.beta = 0.05
-        self.dt = 1.0 / 30.0  # Frecuencia estimada de la cámara
-        
-        # Estados del filtro en el marco MUNDO (odom)
+        self.dt = 1.0 / 30.0
         self.x_world_est = 0.0
         self.vx_world_est = 0.0
         self.y_world_est = 0.0
         self.vy_world_est = 0.0
         self.first_run = True
-
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-
-        self.sub_info = self.create_subscription(
-            CameraInfo, '/bebop/camera/camera_info', self.camera_info_callback, 10)
-        self.sub_image = self.create_subscription(
-            Image, '/bebop/camera/image_raw', self.image_callback, 10)
-        self.pub_ref = self.create_publisher(
-            Float64MultiArray, '/bebop/ref_vec', 10)
+        self.sub_info = self.create_subscription(CameraInfo, '/bebop/camera/camera_info', self.camera_info_callback, 10)
+        self.sub_image = self.create_subscription(Image, '/bebop/camera/image_raw', self.image_callback, 10)
+        self.pub_ref = self.create_publisher(Float64MultiArray, '/bebop/ref_vec', 10)
 
     def camera_info_callback(self, msg):
         if self.has_camera_info: return
@@ -76,67 +52,42 @@ class BebopTagPBVS(Node):
 
     def image_callback(self, msg):
         if not self.has_camera_info: return
-
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except Exception: return
-
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         detections = self.detector.detect(gray)
-
         if detections:
             det = detections[0]
             rvec, tvec = self.estimate_pose(det)
             pose_cam_frame = self.get_pose_from_pnp(rvec, tvec)
-            
-            # Publicar TF del tag respecto a la cámara (visualización)
             self.publish_tag_tf(pose_cam_frame, msg.header.stamp, "camera_link", "tag_detected")
-
             try:
-                # Transformar la posición detectada al marco GLOBAL (odom)
                 tf_odom_cam = self.tf_buffer.lookup_transform("odom", "camera_link", rclpy.time.Time())
                 pose_tag_odom = tf2_geometry_msgs.do_transform_pose(pose_cam_frame, tf_odom_cam)
-                
-                # Calculamos el setpoint de posición (referencia)
                 pose_ref = self.calculate_pose_ref(pose_tag_odom)
-
-                # --- FILTRO ALPHA-BETA EN MARCO GLOBAL ---
-                # Usamos la posición del tag en el mundo para derivar su velocidad mundial
                 z_x = pose_tag_odom.position.x
                 z_y = pose_tag_odom.position.y
-
                 if self.first_run:
                     self.x_world_est = z_x
                     self.y_world_est = z_y
                     self.first_run = False
-                
-                # 1. Predicción
                 self.x_world_est += self.vx_world_est * self.dt
                 self.y_world_est += self.vy_world_est * self.dt
-
-                # 2. Innovación (Residuo respecto al mundo)
                 res_x = z_x - self.x_world_est
                 res_y = z_y - self.y_world_est
-
-                # 3. Actualización de estados (Posición y Velocidad mundial)
                 self.x_world_est += self.alpha * res_x
                 self.y_world_est += self.alpha * res_y
-                
                 self.vx_world_est += (self.beta / self.dt) * res_x
                 self.vy_world_est += (self.beta / self.dt) * res_y
-                # ------------------------------------------
-
                 self.publish_reference(pose_ref, self.vx_world_est, self.vy_world_est)
-
             except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
                 pass
-
         cv2.imshow("PBVS Monitor (Python)", frame)
         cv2.waitKey(1)
 
     def get_pose_from_pnp(self, rvec, tvec):
         pose = Pose()
-        # Conversión de Óptico (CV) a Robótico (ROS FLU)
         pose.position.x = float(tvec[2][0])
         pose.position.y = float(-tvec[0][0])
         pose.position.z = float(-tvec[1][0])
@@ -184,22 +135,9 @@ class BebopTagPBVS(Node):
         q = [pose_ref.orientation.x, pose_ref.orientation.y, 
              pose_ref.orientation.z, pose_ref.orientation.w]
         _, _, yaw = euler_from_quaternion(q)
-
-        # Filtro de banda muerta para evitar oscilaciones por ruido e-08
         vx_pub = round(vx, 3) if abs(vx) > 0.0001 else 0.0
         vy_pub = round(vy, 3) if abs(vy) > 0.0001 else 0.0
-
-        # Vector: [x, y, z, yaw, vx_mundo, vy_mundo, 0, 0]
-        ref_msg.data = [
-            pose_ref.position.x,
-            pose_ref.position.y,
-            pose_ref.position.z,
-            yaw,
-            0.0,
-            0.0,
-            0.0,
-            0.0
-        ]
+        ref_msg.data = [pose_ref.position.x, pose_ref.position.y, pose_ref.position.z, yaw, vx_pub, vy_pub, 0.0, 0.0]
         self.pub_ref.publish(ref_msg)
 
 def main(args=None):

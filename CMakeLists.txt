@@ -98,25 +98,27 @@ install(TARGETS
 
 # ---------------- Python nodes, Launch, Config, URDF ----------------
 install(PROGRAMS
-  neroControl/graphical.py neroControl/apriltag.py
-  neroControl/graphical_no_filter.py
+  neroControl/graphical.py
+  neroControl/apriltag.py
   neroControl/bebop_control_gui.py
-  neroControl/ref_pos.py neroControl/controlador.py
-  neroControl/sim.py neroControl/sim120.py
+  neroControl/ref_pos.py
+  neroControl/controlador.py
+  neroControl/sim.py
+  neroControl/sim120.py
   neroControl/altitude.py
+  neroControl/altitude_sim.py
   neroControl/initial_frame.py
-  neroControl/mpc_controlador.py
   neroControl/ontime_graphical.py
   neroControl/ref_trayectory.py
+  neroControl/ref_multitrayectoria.py
   neroControl/pypbsv.py
   neroControl/pyibsv.py
-  neroControl/drone_optimizer.py
-  neroControl/optimizador2.py
-  neroControl/supertwisting.py
-  neroControl/modelo_basado.py
-  neroControl/fast_optimizer.py
-  neroControl/entrenador_ia.py
-  neroControl/bebop_env.py
+  neroControl/article_plotter.py
+  neroControl/trajectory_graphical_3d.py
+  neroControl/vel_controller.py
+  neroControl/pioneer_joy.py
+  neroControl/prueba_velocidad.py
+  neroControl/land.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

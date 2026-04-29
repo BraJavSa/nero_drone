@@ -1,7 +1,4 @@
-// BebopTagNode: ROS2 node for detecting AprilTags from the Parrot Bebop onboard camera using OpenCV and AprilTag 3.
-// Computes each tag’s 3D position and orientation (Euler angles), overlays detections on the camera image, and displays 3D axes.
-// Author: Brayan Saldarriaga-Mesa (bsaldarriaga@inaut.unsj.edu.ar), in collaboration with UFV.
-
+// ROS2 node for detecting AprilTags from Bebop onboard camera using OpenCV and AprilTag 3
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -84,21 +81,21 @@ private:
             cv::Mat rvec, tvec;
             cv::solvePnP(objectPoints, imagePoints, cameraMatrix_, distCoeffs_, rvec, tvec);
 
-            cv::Mat R;
-            cv::Rodrigues(rvec, R);
+            cv::Mat R_mat;
+            cv::Rodrigues(rvec, R_mat);
 
-            double sy = std::sqrt(R.at<double>(0,0)*R.at<double>(0,0) +
-                                  R.at<double>(1,0)*R.at<double>(1,0));
+            double sy = std::sqrt(R_mat.at<double>(0,0)*R_mat.at<double>(0,0) +
+                                  R_mat.at<double>(1,0)*R_mat.at<double>(1,0));
             bool singular = sy < 1e-6;
 
             double roll, pitch, yaw;
             if (!singular) {
-                roll  = std::atan2(R.at<double>(2,1), R.at<double>(2,2));
-                pitch = std::atan2(-R.at<double>(2,0), sy);
-                yaw   = std::atan2(R.at<double>(1,0), R.at<double>(0,0));
+                roll  = std::atan2(R_mat.at<double>(2,1), R_mat.at<double>(2,2));
+                pitch = std::atan2(-R_mat.at<double>(2,0), sy);
+                yaw   = std::atan2(R_mat.at<double>(1,0), R_mat.at<double>(0,0));
             } else {
-                roll  = std::atan2(-R.at<double>(1,2), R.at<double>(1,1));
-                pitch = std::atan2(-R.at<double>(2,0), sy);
+                roll  = std::atan2(-R_mat.at<double>(1,2), R_mat.at<double>(1,1));
+                pitch = std::atan2(-R_mat.at<double>(2,0), sy);
                 yaw   = 0;
             }
 

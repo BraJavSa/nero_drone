@@ -1,3 +1,4 @@
+// ROS2 node for managing camera TF and gimbal stabilization for the Bebop drone
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
@@ -18,16 +19,11 @@ public:
         tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
         tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-
         sub_move_camera_ = this->create_subscription<geometry_msgs::msg::Vector3>(
             "/bebop/move_camera", 10,
             std::bind(&CameraTFWithGimbal::move_camera_callback, this, std::placeholders::_1));
-
         pub_camera_moving_ = this->create_publisher<std_msgs::msg::Bool>("/bebop/camera_moving", 10);
-
         timer_ = this->create_wall_timer(20ms, std::bind(&CameraTFWithGimbal::update_camera_pitch, this));
-
-        // Configuración inicial
         min_pitch_deg_ = -90.0;
         max_pitch_deg_ = 15.0;
         min_pitch_ = min_pitch_deg_ * M_PI / 180.0;
@@ -45,8 +41,7 @@ public:
         movement_end_time_ = this->now();
         last_update_time_ = this->now();
         wait_start_time_ = this->now();
-
-        RCLCPP_INFO(this->get_logger(), "CameraTFWithGimbal (Fixed Identity Rotation) started.");
+        RCLCPP_INFO(this->get_logger(), "CameraTFWithGimbal started.");
     }
 
 private:
@@ -62,13 +57,10 @@ private:
         auto now = this->now();
         double dt = (now - last_update_time_).seconds();
         last_update_time_ = now;
-
         if (waiting_) {
-            if ((now - wait_start_time_).seconds() >= delay_before_move_) {
+            if ((now - wait_start_time_).seconds() >= delay_before_move_)
                 waiting_ = false;
-            }
         }
-
         if (moving_ && !waiting_) {
             double error = target_pitch_ - current_pitch_;
             double direction = (error > 0.0) ? 1.0 : -1.0;
@@ -81,14 +73,12 @@ private:
                 current_pitch_ += delta;
             }
         }
-
         geometry_msgs::msg::TransformStamped tf_base;
         try {
             tf_base = tf_buffer_->lookupTransform("odom", "base_link", tf2::TimePointZero);
         } catch (tf2::TransformException &ex) {
             return;
         }
-
         tf2::Quaternion q_drone(
             tf_base.transform.rotation.x,
             tf_base.transform.rotation.y,
@@ -96,26 +86,21 @@ private:
             tf_base.transform.rotation.w);
         double roll, pitch, yaw;
         tf2::Matrix3x3(q_drone).getRPY(roll, pitch, yaw);
-
         double gimbal_max = gimbal_abs_max_ - current_pitch_;
         double gimbal_min = gimbal_abs_min_ - current_pitch_;
         double limited_pitch = std::clamp(pitch, gimbal_min, gimbal_max);
-
         tf2::Quaternion q_pitch_comp, q_roll_comp, q_total_comp;
         q_pitch_comp.setRPY(0.0, -limited_pitch, 0.0);
         q_roll_comp.setRPY(-roll, 0.0, 0.0);
         q_total_comp = q_roll_comp * q_pitch_comp;
         q_total_comp.normalize();
-
         publish_absolute_tf();
         publish_camera_tf(current_pitch_);
         publish_gimbal_tf(q_total_comp);
-
         bool is_moving = waiting_ || moving_ || (now - movement_end_time_).seconds() < extra_publish_duration_;
         publish_camera_moving(is_moving);
     }
 
-    // --- AQUÍ ESTABA EL ERROR: AGREGADA LA FUNCIÓN FALTANTE ---
     void publish_camera_moving(bool is_moving) {
         std_msgs::msg::Bool msg;
         msg.data = is_moving;
@@ -130,10 +115,8 @@ private:
         tf_abs.transform.translation.x = 0.12;
         tf_abs.transform.translation.y = 0.0;
         tf_abs.transform.translation.z = 0.01;
-
         tf2::Quaternion q_tilt;
         q_tilt.setRPY(0.0, -tilt_offset_, 0.0); 
-        
         tf_abs.transform.rotation.x = q_tilt.x();
         tf_abs.transform.rotation.y = q_tilt.y();
         tf_abs.transform.rotation.z = q_tilt.z();
@@ -149,10 +132,8 @@ private:
         tf_cam.transform.translation.x = 0.12;
         tf_cam.transform.translation.y = 0.0;
         tf_cam.transform.translation.z = 0.02;
-
         tf2::Quaternion q_pitch;
         q_pitch.setRPY(0.0, -pitch_angle, 0.0); 
-
         tf_cam.transform.rotation.x = q_pitch.x();
         tf_cam.transform.rotation.y = q_pitch.y();
         tf_cam.transform.rotation.z = q_pitch.z();
@@ -178,7 +159,6 @@ private:
     bool waiting_, moving_;
     double extra_publish_duration_;
     rclcpp::Time movement_end_time_, last_update_time_, wait_start_time_;
-
     rclcpp::Subscription<geometry_msgs::msg::Vector3>::SharedPtr sub_move_camera_;
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;

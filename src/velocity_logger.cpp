@@ -1,9 +1,4 @@
-// TopicLogger: Nodo ROS2 para registrar posiciones, velocidades, referencias y comandos del Bebop
-// con manejo continuo (sin saltos) de yaw y yawd, y cálculo estable de yaw_rate.
-// Ahora también filtra suavemente los comandos cmd_linx, cmd_liny, cmd_linz y cmd_angz.
-// Guarda automáticamente los logs en ~/ros2_ws/src/neroControl/data
-// Autor: Brayan Saldarriaga-Mesa (bsaldarriaga@inaut.unsj.edu.ar)
-
+// ROS2 node for logging UAV telemetry data into CSV files
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/twist.hpp>
@@ -35,31 +30,28 @@ public:
           yaw_cont_(0.0),
           yawd_cont_(0.0),
           yaw_rate_(0.0),
-          cmd_linx_filt_(0.0),
-          cmd_liny_filt_(0.0),
-          cmd_linz_filt_(0.0),
-          cmd_angz_filt_(0.0)
+          cmd_linx_raw_(0.0),
+          cmd_liny_raw_(0.0),
+          cmd_linz_raw_(0.0),
+          cmd_angz_raw_(0.0)
     {
-        RCLCPP_INFO(this->get_logger(), "Nodo de registro iniciado (30 Hz, yaw continuo, cálculo estable de yaw_rate, comandos suavizados)");
+        RCLCPP_INFO(this->get_logger(), "Logger node started (30 Hz, continuous yaw, unfiltered, body/world velocities)");
 
-        // ------------------- Suscripciones -------------------
         sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
             "/odometry/filtered", 10,
             std::bind(&TopicLogger::odomCallback, this, std::placeholders::_1));
 
         sub_cmd_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "/safe_bebop/cmd_vel", 10,
+            "/bebop/cmd_vel", 10,
             std::bind(&TopicLogger::cmdCallback, this, std::placeholders::_1));
 
         sub_ref_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
             "/bebop/ref_vec", 10,
             std::bind(&TopicLogger::refCallback, this, std::placeholders::_1));
 
-        // ------------------- Directorio base ROS2 -------------------
         std::string base_path = std::string(std::getenv("HOME")) + "/ros2_ws/src/neroControl/data";
-        fs::create_directories(base_path);  // asegúrate de que exista
+        fs::create_directories(base_path);
 
-        // ------------------- Archivo CSV con fecha y hora -------------------
         auto now = std::chrono::system_clock::now();
         std::time_t now_time = std::chrono::system_clock::to_time_t(now);
         std::tm local_tm = *std::localtime(&now_time);
@@ -72,20 +64,21 @@ public:
         logfile_.open(filename.str(), std::ios::out);
         if (!logfile_.is_open())
         {
-            RCLCPP_ERROR(this->get_logger(), "No se pudo abrir el archivo de log: %s", filename.str().c_str());
-            throw std::runtime_error("Error al abrir archivo CSV");
+            RCLCPP_ERROR(this->get_logger(), "Could not open log file: %s", filename.str().c_str());
+            throw std::runtime_error("Error opening CSV file");
         }
 
-        RCLCPP_INFO(this->get_logger(), "Guardando log en: %s", filename.str().c_str());
+        RCLCPP_INFO(this->get_logger(), "Logging to: %s", filename.str().c_str());
 
         logfile_ << "time,"
                  << "x,y,z,yaw,"
-                 << "linx,liny,linz,yaw_rate,"
+                 << "linx_w,liny_w,linz_w,"
+                 << "linx_b,liny_b,linz_b,yaw_rate,"
                  << "xd,yd,zd,yawd,"
-                 << "vxd,vyd,vzd,wyawd,"
+                 << "vxd_w,vyd_w,vzd_w,"
+                 << "vxd_b,vyd_b,vzd_b,wyawd,"
                  << "cmd_linx,cmd_liny,cmd_linz,cmd_angz\n";
 
-        // ------------------- Temporizador 30 Hz -------------------
         timer_ = this->create_wall_timer(
             std::chrono::duration<double>(1.0 / 30.0),
             std::bind(&TopicLogger::logData, this));
@@ -99,7 +92,6 @@ public:
 private:
     std::mutex mtx_;
 
-    // ------------------- ODOMETRÍA -------------------
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
     {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -122,8 +114,7 @@ private:
             double dt = t - last_time_;
             if (dt > 1e-3)
             {
-                double raw_rate = dyaw / dt;
-                yaw_rate_ = 0.9 * yaw_rate_ + 0.1 * raw_rate;
+                yaw_rate_ = dyaw / dt;
             }
         }
         else
@@ -137,32 +128,16 @@ private:
         last_time_ = t;
     }
 
-    // ------------------- COMANDOS -------------------
     void cmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
         std::lock_guard<std::mutex> lock(mtx_);
-        double alpha = 0.9; // suavizado
-
-        if (!cmd_first_sample_)
-        {
-            cmd_linx_filt_ = alpha * cmd_linx_filt_ + (1.0 - alpha) * msg->linear.x;
-            cmd_liny_filt_ = alpha * cmd_liny_filt_ + (1.0 - alpha) * msg->linear.y;
-            cmd_linz_filt_ = alpha * cmd_linz_filt_ + (1.0 - alpha) * msg->linear.z;
-            cmd_angz_filt_ = alpha * cmd_angz_filt_ + (1.0 - alpha) * msg->angular.z;
-        }
-        else
-        {
-            cmd_first_sample_ = false;
-            cmd_linx_filt_ = msg->linear.x;
-            cmd_liny_filt_ = msg->linear.y;
-            cmd_linz_filt_ = msg->linear.z;
-            cmd_angz_filt_ = msg->angular.z;
-        }
-
+        cmd_linx_raw_ = msg->linear.x;
+        cmd_liny_raw_ = msg->linear.y;
+        cmd_linz_raw_ = msg->linear.z;
+        cmd_angz_raw_ = msg->angular.z;
         last_cmd_ = *msg;
     }
 
-    // ------------------- REFERENCIAS -------------------
     void refCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
         if (msg->data.size() == 8)
@@ -187,7 +162,6 @@ private:
         }
     }
 
-    // ------------------- REGISTRO PERIÓDICO -------------------
     void logData()
     {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -203,37 +177,47 @@ private:
                  << last_odom_.pose.pose.position.z << ","
                  << yaw_cont_ << ",";
 
-        logfile_ << last_odom_.twist.twist.linear.x << ","
-                 << last_odom_.twist.twist.linear.y << ","
-                 << last_odom_.twist.twist.linear.z << ","
+        double lx_b = last_odom_.twist.twist.linear.x;
+        double ly_b = last_odom_.twist.twist.linear.y;
+        double lz_b = last_odom_.twist.twist.linear.z;
+        double lx_w = lx_b * std::cos(last_yaw_) - ly_b * std::sin(last_yaw_);
+        double ly_w = lx_b * std::sin(last_yaw_) + ly_b * std::cos(last_yaw_);
+        double lz_w = lz_b;
 
+        logfile_ << lx_w << "," << ly_w << "," << lz_w << ","
+                 << lx_b << "," << ly_b << "," << lz_b << ","
                  << yaw_rate_ << ",";
 
         if (ref_received_)
         {
+            double vxd_w = last_ref_[4];
+            double vyd_w = last_ref_[5];
+            double vzd_w = last_ref_[6];
+            double vxd_b = vxd_w * std::cos(last_yawd_) + vyd_w * std::sin(last_yawd_);
+            double vyd_b = -vxd_w * std::sin(last_yawd_) + vyd_w * std::cos(last_yawd_);
+            double vzd_b = vzd_w;
+
             logfile_ << last_ref_[0] << ","
                      << last_ref_[1] << ","
                      << last_ref_[2] << ","
                      << yawd_cont_ << ","
-                     << last_ref_[4] << ","
-                     << last_ref_[5] << ","
-                     << last_ref_[6] << ","
+                     << vxd_w << "," << vyd_w << "," << vzd_w << ","
+                     << vxd_b << "," << vyd_b << "," << vzd_b << ","
                      << last_ref_[7] << ",";
         }
         else
         {
-            logfile_ << "0,0,0,0,0,0,0,0,";
+            logfile_ << "0,0,0,0,0,0,0,0,0,0,0,";
         }
 
-        logfile_ << cmd_linx_filt_ << ","
-                 << cmd_liny_filt_ << ","
-                 << cmd_linz_filt_ << ","
-                 << cmd_angz_filt_ << "\n";
+        logfile_ << cmd_linx_raw_ << ","
+                 << cmd_liny_raw_ << ","
+                 << cmd_linz_raw_ << ","
+                 << cmd_angz_raw_ << "\n";
 
         logfile_.flush();
     }
 
-    // ------------------- VARIABLES -------------------
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odom_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_ref_;
@@ -257,10 +241,10 @@ private:
     double last_yawd_;
     double yawd_cont_;
 
-    double cmd_linx_filt_;
-    double cmd_liny_filt_;
-    double cmd_linz_filt_;
-    double cmd_angz_filt_;
+    double cmd_linx_raw_;
+    double cmd_liny_raw_;
+    double cmd_linz_raw_;
+    double cmd_angz_raw_;
 };
 
 int main(int argc, char **argv)

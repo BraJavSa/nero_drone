@@ -1,3 +1,4 @@
+// ROS2 node for tracking and publishing the drone's flight status (flying vs. grounded)
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/bool.hpp>
@@ -6,16 +7,9 @@
 
 using namespace std::chrono_literals;
 
-class IsFlyNode : public rclcpp::Node
-{
+class IsFlyNode : public rclcpp::Node {
 public:
-    IsFlyNode() : Node("isfly_node"), is_flying_(false)
-    {
-        RCLCPP_INFO(this->get_logger(), "Nodo isfly iniciado: esperando /bebop/takeoff y /bebop/land");
-
-        // --------------------------------------------------------------------
-        // Suscriptores
-        // --------------------------------------------------------------------
+    IsFlyNode() : Node("isfly_node"), is_flying_(false) {
         sub_takeoff_ = this->create_subscription<std_msgs::msg::Empty>(
             "/bebop/takeoff", 10,
             std::bind(&IsFlyNode::takeoffCallback, this, std::placeholders::_1));
@@ -24,59 +18,40 @@ public:
             "/bebop/land", 10,
             std::bind(&IsFlyNode::landCallback, this, std::placeholders::_1));
 
-        // --------------------------------------------------------------------
-        // Publicador del estado booleano
-        // --------------------------------------------------------------------
-        pub_is_flying_ = this->create_publisher<std_msgs::msg::Bool>(
-            "/bebop/is_flying", 10);
-
-        // Timer que publica el estado periódicamente
-        timer_ = this->create_wall_timer(
-            200ms, std::bind(&IsFlyNode::publishState, this));
+        pub_is_flying_ = this->create_publisher<std_msgs::msg::Bool>("/bebop/is_flying", 10);
+        timer_ = this->create_wall_timer(200ms, std::bind(&IsFlyNode::publishState, this));
+        RCLCPP_INFO(this->get_logger(), "IsFlyNode started.");
     }
 
 private:
-    // ------------------------------------------------------------------------
-    void takeoffCallback(const std_msgs::msg::Empty::SharedPtr /*msg*/)
-    {
-        if (is_flying_)
-        {
-            RCLCPP_WARN(this->get_logger(), "Comando TAKEOFF ignorado: ya está en vuelo.");
+    void takeoffCallback(const std_msgs::msg::Empty::SharedPtr) {
+        if (is_flying_) {
+            RCLCPP_WARN(this->get_logger(), "Takeoff ignored: drone is already flying.");
             return;
         }
-
-        RCLCPP_INFO(this->get_logger(), "Comando TAKEOFF recibido. Esperando 5 segundos...");
-        // Lanzar hilo separado para no bloquear el spin
-        std::thread([this]()
-        {
+        RCLCPP_INFO(this->get_logger(), "Takeoff received. Waiting for lift-off...");
+        std::thread([this]() {
             std::this_thread::sleep_for(3s);
             this->is_flying_ = true;
-            RCLCPP_INFO(this->get_logger(), "El dron ahora está en vuelo (flag is_flying = true).");
+            RCLCPP_INFO(this->get_logger(), "Drone is now flying (is_flying = true).");
         }).detach();
     }
 
-    // ------------------------------------------------------------------------
-    void landCallback(const std_msgs::msg::Empty::SharedPtr /*msg*/)
-    {
-        if (!is_flying_)
-        {
-            RCLCPP_WARN(this->get_logger(), "Comando LAND ignorado: ya estaba en tierra.");
+    void landCallback(const std_msgs::msg::Empty::SharedPtr) {
+        if (!is_flying_) {
+            RCLCPP_WARN(this->get_logger(), "Land ignored: drone is already grounded.");
             return;
         }
-
         is_flying_ = false;
-        RCLCPP_INFO(this->get_logger(), "El dron ha aterrizado (flag is_flying = false).");
+        RCLCPP_INFO(this->get_logger(), "Drone has landed (is_flying = false).");
     }
 
-    // ------------------------------------------------------------------------
-    void publishState()
-    {
+    void publishState() {
         std_msgs::msg::Bool msg;
         msg.data = is_flying_;
         pub_is_flying_->publish(msg);
     }
 
-    // ------------------------------------------------------------------------
     bool is_flying_;
     rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr sub_takeoff_;
     rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr sub_land_;
@@ -84,14 +59,9 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
 };
 
-// ============================================================================
-// MAIN
-// ============================================================================
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<IsFlyNode>();
-    rclcpp::spin(node);
+    rclcpp::spin(std::make_shared<IsFlyNode>());
     rclcpp::shutdown();
     return 0;
 }

@@ -1,3 +1,4 @@
+// ROS2 node for Position-Based Visual Servoing (PBVS) using AprilTags
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -6,7 +7,6 @@
 #include <opencv2/opencv.hpp>
 #include <apriltag/apriltag.h>
 #include <apriltag/tag36h11.h>
-
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -72,7 +72,6 @@ private:
             cv::Mat rvec, tvec;
             estimate_pose(det, rvec, tvec);
 
-            // Optical to Robotic Frame conversion
             double tx =  tvec.at<double>(2);
             double ty = -tvec.at<double>(0);
             double tz = -tvec.at<double>(1);
@@ -82,12 +81,12 @@ private:
             pose_cam_frame.position.y = ty;
             pose_cam_frame.position.z = tz;
 
-            cv::Mat R;
-            cv::Rodrigues(rvec, R);
+            cv::Mat R_mat;
+            cv::Rodrigues(rvec, R_mat);
             tf2::Matrix3x3 tf2_rot(
-                R.at<double>(0,0), R.at<double>(0,1), R.at<double>(0,2),
-                R.at<double>(1,0), R.at<double>(1,1), R.at<double>(1,2),
-                R.at<double>(2,0), R.at<double>(2,1), R.at<double>(2,2));
+                R_mat.at<double>(0,0), R_mat.at<double>(0,1), R_mat.at<double>(0,2),
+                R_mat.at<double>(1,0), R_mat.at<double>(1,1), R_mat.at<double>(1,2),
+                R_mat.at<double>(2,0), R_mat.at<double>(2,1), R_mat.at<double>(2,2));
 
             tf2::Quaternion q_orig;
             tf2_rot.getRotation(q_orig);
@@ -107,22 +106,16 @@ private:
                 geometry_msgs::msg::Pose pose_tag_odom;
                 tf2::doTransform(pose_cam_frame, pose_tag_odom, tf_odom_cam);
 
-                // Create a transformation object for the tag in odom
                 tf2::Transform tf_tag_global;
                 tf2::fromMsg(pose_tag_odom, tf_tag_global);
 
-                // Precise offset calculation: -1.5m along the local X-axis (behind the tag)
                 tf2::Vector3 local_offset(-0.05, 0.0, 0.0); 
                 tf2::Vector3 target_pos_odom = tf_tag_global * local_offset;
 
                 geometry_msgs::msg::Pose pose_ref;
                 pose_ref.position.x = target_pos_odom.x();
                 pose_ref.position.y = target_pos_odom.y();
-                
-                // Requirement: Altitude must be absolute Z + 1.5 in odom frame
                 pose_ref.position.z = 1.5; 
-
-                // Requirement: Reference must have the same orientation as the tag
                 pose_ref.orientation = pose_tag_odom.orientation;
 
                 publish_reference(pose_ref);
@@ -175,9 +168,7 @@ private:
         ref_msg.data[1] = pose_ref.position.y;
         ref_msg.data[2] = pose_ref.position.z;
         ref_msg.data[3] = yaw;
-        
         for(int i=4; i<8; i++) ref_msg.data[i] = 0.0;
-        
         pub_ref_->publish(ref_msg);
     }
 

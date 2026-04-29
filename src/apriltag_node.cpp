@@ -1,7 +1,4 @@
-// AprilTagNode: ROS2 node that captures live video, detects AprilTags using OpenCV and AprilTag 3, 
-// estimates each tag’s 3D pose and orientation, draws tag outlines and axes, and displays FPS in real time.
-// Author: Brayan Saldarriaga-Mesa (bsaldarriaga@inaut.unsj.edu.ar), in collaboration with UFV.
-
+// ROS2 node for AprilTag detection and 3D pose estimation using OpenCV and AprilTag 3
 #include <rclcpp/rclcpp.hpp>
 #include <opencv2/opencv.hpp>
 #include <apriltag/apriltag.h>
@@ -91,21 +88,21 @@ private:
             cv::Mat rvec, tvec;
             cv::solvePnP(objectPoints, imagePoints, cameraMatrix_, distCoeffs_, rvec, tvec);
 
-            cv::Mat R;
-            cv::Rodrigues(rvec, R);
+            cv::Mat R_mat;
+            cv::Rodrigues(rvec, R_mat);
 
-            double sy = std::sqrt(R.at<double>(0,0) * R.at<double>(0,0) +
-                                  R.at<double>(1,0) * R.at<double>(1,0));
+            double sy = std::sqrt(R_mat.at<double>(0,0) * R_mat.at<double>(0,0) +
+                                  R_mat.at<double>(1,0) * R_mat.at<double>(1,0));
             bool singular = sy < 1e-6;
 
             double roll, pitch, yaw;
             if (!singular) {
-                roll  = std::atan2(R.at<double>(2,1), R.at<double>(2,2));
-                pitch = std::atan2(-R.at<double>(2,0), sy);
-                yaw   = std::atan2(R.at<double>(1,0), R.at<double>(0,0));
+                roll  = std::atan2(R_mat.at<double>(2,1), R_mat.at<double>(2,2));
+                pitch = std::atan2(-R_mat.at<double>(2,0), sy);
+                yaw   = std::atan2(R_mat.at<double>(1,0), R_mat.at<double>(0,0));
             } else {
-                roll  = std::atan2(-R.at<double>(1,2), R.at<double>(1,1));
-                pitch = std::atan2(-R.at<double>(2,0), sy);
+                roll  = std::atan2(-R_mat.at<double>(1,2), R_mat.at<double>(1,1));
+                pitch = std::atan2(-R_mat.at<double>(2,0), sy);
                 yaw   = 0;
             }
 

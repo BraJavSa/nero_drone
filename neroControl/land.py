@@ -1,3 +1,4 @@
+# Script to send a land command to the Bebop drone
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Empty
@@ -10,4 +11,4 @@ class Land(Node):
     def send(self):
         msg = Empty()
         self.publisher_.publish(msg)
-        self.get_logger().info("Land command sent")
+        self.get_logger().info("Land command sent.")

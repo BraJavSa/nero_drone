@@ -1,3 +1,4 @@
+// ROS2 node for filtering reference vectors and tag positions using EMA
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/bool.hpp>
@@ -13,29 +14,23 @@ public:
           tf_buffer_(this->get_clock()),
           tf_listener_(tf_buffer_)
     {
-        // --- Publicadores ---
         ref_vec_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/bebop/ref_vec", 10);
         marker_pub_  = this->create_publisher<visualization_msgs::msg::Marker>("ref_marker", 10);
 
-        // --- Suscriptor a la detección ---
         sub_detected_ = this->create_subscription<std_msgs::msg::Bool>(
             "/bebop/detected", 10,
             std::bind(&RefVecFilter::detected_callback, this, std::placeholders::_1));
 
-        // --- Parámetros del filtro ---
-        alpha_pos_ = this->declare_parameter("alpha_pos", 0.93);  // rápido (≈1/40 s)
+        alpha_pos_ = this->declare_parameter("alpha_pos", 0.93);
         alpha_vel_ = this->declare_parameter("alpha_vel", 0.75);
         first_detection_ = true;
         detected_ = false;
 
-        // --- Timer a 30 Hz ---
         timer_ = this->create_wall_timer(
             std::chrono::milliseconds(33),
             std::bind(&RefVecFilter::timer_callback, this));
 
-        RCLCPP_INFO(this->get_logger(),
-                    "RefVecFilter (30 Hz, α_pos=%.2f, filtra antes de referencia, depende de /bebop/detected)",
-                    alpha_pos_);
+        RCLCPP_INFO(this->get_logger(), "RefVecFilter started (30 Hz, alpha_pos=%.2f).", alpha_pos_);
     }
 
 private:
@@ -54,11 +49,10 @@ private:
             tf_tag_odom = tf_buffer_.lookupTransform("odom", "tag_0", tf2::TimePointZero);
         } catch (const tf2::TransformException &ex) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                 "TF odom→tag_0 no disponible: %s", ex.what());
+                                 "TF odom->tag_0 not available: %s", ex.what());
             return;
         }
 
-        // --- Posición actual del tag ---
         double x = tf_tag_odom.transform.translation.x;
         double y = tf_tag_odom.transform.translation.y;
         double z = tf_tag_odom.transform.translation.z;
@@ -66,7 +60,6 @@ private:
         double vy = 0.0;
         double vz = 0.0; 
 
-        // --- Filtro EMA sobre la posición ---
         if (first_detection_) {
             x_f_ = x; y_f_ = y; z_f_ = z;
             vx_f_ = vy_f_ = vz_f_ = 0.0;
@@ -93,20 +86,15 @@ private:
 
         x_prev_ = x; y_prev_ = y; z_prev_ = z;
 
-        // --- Calcular referencia DESPUÉS del filtrado ---
         double x_ref = x - 2.0;
         double y_ref = y;
         double z_ref = 1.7;
 
-        // --- Publicar vector de referencia ---
         std_msgs::msg::Float64MultiArray ref_msg;
         ref_msg.data = {x_ref, y_ref, z_ref, 0.0, 0.0, 0.0, 0.0, 0.0};
         ref_vec_pub_->publish(ref_msg);
 
-        // --- Esfera roja: posición filtrada del tag ---
         publish_marker(0, "tag_filtered", x_f_, y_f_, z_f_, 1.0f, 0.0f, 0.0f);
-
-        // --- Esfera verde: posición de referencia ---
         publish_marker(1, "ref_point", x_ref, y_ref, z_ref, 0.0f, 1.0f, 0.0f);
     }
 
@@ -121,16 +109,13 @@ private:
         marker.id = id;
         marker.type = visualization_msgs::msg::Marker::SPHERE;
         marker.action = visualization_msgs::msg::Marker::ADD;
-
         marker.pose.position.x = x;
         marker.pose.position.y = y;
         marker.pose.position.z = z;
         marker.pose.orientation.w = 1.0;
-
         marker.scale.x = 0.08;
         marker.scale.y = 0.08;
         marker.scale.z = 0.08;
-
         marker.color.r = r;
         marker.color.g = g;
         marker.color.b = b;
@@ -145,17 +130,12 @@ private:
         marker_pub_->publish(marker);
     }
 
-    // --- ROS ---
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_detected_;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr ref_vec_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
-
-    // --- TF ---
     tf2_ros::Buffer tf_buffer_;
     tf2_ros::TransformListener tf_listener_;
-
-    // --- Filtro ---
     bool first_detection_;
     bool detected_;
     double alpha_pos_, alpha_vel_;
