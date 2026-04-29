@@ -149,7 +149,7 @@ class Bebop:
         w_F_b = np.array([[cos(w_yaw), -sin(w_yaw), 0, 0], [sin(w_yaw), cos(w_yaw), 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
         b_Ud_raw = np.linalg.inv(w_F_b @ Ku) @ (w_dUr + Ksd @ (w_Ur - w_dX) + Kv @ w_dX)
         if self.opt != 1:
-            alpha = 0.1
+            alpha = 0.01
             self.pSC.b_Ud = alpha * b_Ud_raw + (1.0 - alpha) * self.pSC.b_Ud_ant
             self.pSC.b_Ud_ant = np.copy(self.pSC.b_Ud)
         else:

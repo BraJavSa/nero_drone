@@ -119,6 +119,7 @@ install(PROGRAMS
   neroControl/pioneer_joy.py
   neroControl/prueba_velocidad.py
   neroControl/land.py
+  neroControl/smc_controller.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
