@@ -6,10 +6,10 @@ from std_msgs.msg import Float64MultiArray, Bool
 import numpy as np
 import time
 
-V_XY    = 1.5
+V_XY    = 1.0
 V_Z     = 0.5
 V_YAW   = np.deg2rad(30.0)
-T_RAMP   = 3.0
+T_RAMP   = 5.0
 T_CRUISE = 3.0
 T_HOVER  = 2.0
 T_WAIT   = 5.0

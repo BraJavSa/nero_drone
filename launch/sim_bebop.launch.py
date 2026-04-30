@@ -93,12 +93,5 @@ def generate_launch_description():
             arguments=['-d', rviz_config],
             output='screen'
         ),
-
-        Node(
-            package='neroControl',
-            executable='controlador.py',
-            name='controlador',
-            output='screen'
-        ),
         
     ])

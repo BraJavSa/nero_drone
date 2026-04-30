@@ -24,11 +24,10 @@ include_directories(
   ${EIGEN3_INCLUDE_DIRS}
 )
 
-# ... (Tus otros ejecutables: Joy2Cmd, apriltag_node, beboptag, ibvs se mantienen igual)
 
-add_executable(Joy2Cmd src/Joy2Cmd.cpp)
-ament_target_dependencies(Joy2Cmd rclcpp sensor_msgs geometry_msgs std_msgs)
-target_link_libraries(Joy2Cmd ${OpenCV_LIBS})
+add_executable(joy2cmd src/joy2cmd.cpp)
+ament_target_dependencies(joy2cmd rclcpp sensor_msgs geometry_msgs std_msgs)
+target_link_libraries(joy2cmd ${OpenCV_LIBS})
 
 add_executable(apriltag_node src/apriltag_node.cpp)
 ament_target_dependencies(apriltag_node rclcpp OpenCV)
@@ -90,7 +89,7 @@ target_link_libraries(pbvs ${APRILTAG_LIB} ${OpenCV_LIBS})
 
 # ---------------- Install ----------------
 install(TARGETS
-  Joy2Cmd apriltag_node beboptag tf_cam tf_tag_bebop velocity_logger
+  joy2cmd apriltag_node beboptag tf_cam tf_tag_bebop velocity_logger
   safety_watchdog safe_bebop_republisher ref_vec_filter isfly ibvs
   tag_pos tf_odom_to_map pbvs 
   DESTINATION lib/${PROJECT_NAME}
@@ -120,6 +119,7 @@ install(PROGRAMS
   neroControl/prueba_velocidad.py
   neroControl/land.py
   neroControl/smc_controller.py
+  neroControl/body_velocities_graph.py 
   DESTINATION lib/${PROJECT_NAME}
 )
 

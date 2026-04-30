@@ -43,7 +43,7 @@ class Bebop:
         self.is_flying = False
         self.first_ref = True
         self.w_last_ref = np.zeros(8)
-        self.opt = 2
+        self.opt = 1
         self.base_opt = self.opt
         self.opt_params = {
             1: {
@@ -68,7 +68,7 @@ class Bebop:
                 'ksp_x': 1, 'ksp_y': 1, 'ksp_z': 1, 'ksp_psi': 4,
                 'ksd_x': 1.2,  'ksd_y': 1.2,  'ksd_z': 1, 'ksd_psi':1.2,
                 'kp_x': 1,   'kp_y': 1,   'kp_z': 1,  'kp_psi': 2.5,
-                'kd_x': 1,  'kd_y': 1,  'kd_z': 1,  'kd_psi': 1.0
+                'kd_x': 0,  'kd_y': 0,  'kd_z': 0,  'kd_psi': 0.0
             }
         }
         initial_values = self.opt_params.get(self.opt, self.opt_params[4])
@@ -149,11 +149,13 @@ class Bebop:
         w_F_b = np.array([[cos(w_yaw), -sin(w_yaw), 0, 0], [sin(w_yaw), cos(w_yaw), 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
         b_Ud_raw = np.linalg.inv(w_F_b @ Ku) @ (w_dUr + Ksd @ (w_Ur - w_dX) + Kv @ w_dX)
         if self.opt != 1:
-            alpha = 0.01
+            alpha = 0.1
             self.pSC.b_Ud = alpha * b_Ud_raw + (1.0 - alpha) * self.pSC.b_Ud_ant
             self.pSC.b_Ud_ant = np.copy(self.pSC.b_Ud)
         else:
-            self.pSC.b_Ud = np.copy(b_Ud_raw)
+            alpha = 0.3
+            self.pSC.b_Ud = alpha * b_Ud_raw + (1.0 - alpha) * self.pSC.b_Ud_ant
+            self.pSC.b_Ud_ant = np.copy(self.pSC.b_Ud)
 
     def rSendControlSignals(self):
         if not self.ref_received or not self.is_flying: return
