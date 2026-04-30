@@ -153,7 +153,7 @@ class Bebop:
             self.pSC.b_Ud = alpha * b_Ud_raw + (1.0 - alpha) * self.pSC.b_Ud_ant
             self.pSC.b_Ud_ant = np.copy(self.pSC.b_Ud)
         else:
-            alpha = 0.3
+            alpha = 0.35
             self.pSC.b_Ud = alpha * b_Ud_raw + (1.0 - alpha) * self.pSC.b_Ud_ant
             self.pSC.b_Ud_ant = np.copy(self.pSC.b_Ud)
 
