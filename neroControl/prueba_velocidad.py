@@ -6,9 +6,9 @@ from std_msgs.msg import Float64MultiArray, Bool
 import numpy as np
 import time
 
-V_XY    = 1.0
-V_Z     = 0.5
-V_YAW   = np.deg2rad(30.0)
+V_XY    = 0.3
+V_Z     = 1.0
+V_YAW   = np.deg2rad(70.0)
 T_RAMP   = 5.0
 T_CRUISE = 3.0
 T_HOVER  = 2.0
@@ -43,6 +43,7 @@ SEGMENTS = [
     ('+Yaw CW',      V_YAW,  3),
     ('-Yaw CCW',    -V_YAW,  3),
 ]
+#SEGMENTS = [s for s in SEGMENTS if s[2] == 3]
 
 class VelocityTrajectory(Node):
     def __init__(self):

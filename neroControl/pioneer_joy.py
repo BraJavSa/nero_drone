@@ -9,8 +9,8 @@ class KeyboardJoystick(Node):
     def __init__(self):
         super().__init__('keyboard_joystick')
         self.pub_cmd = self.create_publisher(Twist, '/pioneer/cmd_vel', 10)
-        self.linear_speed = 1.0
-        self.angular_speed = 0.5
+        self.linear_speed = 1.4
+        self.angular_speed = 0.8
         self.keys_pressed = {
             keyboard.Key.up: False,
             keyboard.Key.down: False,

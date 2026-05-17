@@ -22,9 +22,9 @@ class InitialFramePublisher(Node):
             if (now - self.start_time).nanoseconds < 2e9:
                 return
             try:
-                tf_bl = self.tf_buffer.lookup_transform("odom", "base_link_ekf", rclpy.time.Time())
+                tf_bl = self.tf_buffer.lookup_transform("odom", "base_link", rclpy.time.Time())
             except Exception:
-                self.get_logger().warn("Waiting for odom -> base_link_ekf TF...")
+                self.get_logger().warn("Waiting for odom -> base_link TF...")
                 return
             self.initial_transform = tf_bl
             self.initialized = True

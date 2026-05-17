@@ -21,7 +21,7 @@ def apply_publication_style():
         "axes.labelsize":     8,
         "xtick.labelsize":    7.5,
         "ytick.labelsize":    7.5,
-        "legend.fontsize":    7,
+        "legend.fontsize":    5.5,
         "figure.titlesize":   10,
         "lines.linewidth":    1.2,
         "lines.markersize":   3.5,
@@ -127,7 +127,7 @@ def safe_plot(ax, t, df, col, role, **kwargs):
 
 def _add_legend(ax, handles: list, labels: list):
     if not handles: return
-    ax.legend(handles, labels, loc="best", fontsize=7, frameon=True, framealpha=0.85, edgecolor="#cccccc", borderpad=0.35, handlelength=1.6, labelspacing=0.25)
+    ax.legend(handles, labels, loc="best", fontsize=5.5, frameon=True, framealpha=0.85, edgecolor="#cccccc", borderpad=0.35, handlelength=1.6, labelspacing=0.25)
 
 def _vel_ylim(df: pd.DataFrame, cols: list, margin: float = 0.05):
     vals = [df[c].dropna().values for c in cols if c in df.columns]

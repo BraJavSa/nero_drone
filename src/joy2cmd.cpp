@@ -18,7 +18,7 @@ public:
     land_pub_ = this->create_publisher<std_msgs::msg::Empty>("/bebop/land", 10);
 
     timer_ =
-        this->create_wall_timer(std::chrono::milliseconds(33),
+        this->create_wall_timer(std::chrono::milliseconds(100),
                                 std::bind(&BebopJoyNode::publishCmdVel, this));
   }
 

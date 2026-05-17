@@ -19,12 +19,12 @@ class RefPublisher(Node):
         self.hold_time = 10.0
         self.t0 = time.time()
         self.idx = 0
-        L = 1.6
+        L = 1.5
         self.points = np.array([
-            [L/2, L/2, 1.5],
+            [L/2, L/2, 1.8],
             [-L/2, L/2, 1.5],
-            [-L/2, -L/2, 1.5],
-            [0.0, 0.0, 1.5]
+            [-L/2, -L/2, 1.3],
+            [0.0, 0.0, 1.6]
         ])
         self.yaws = np.deg2rad([45, 135, -135, 0])
         self.timer = self.create_timer(self.dt, self.timer_cb)

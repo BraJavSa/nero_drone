@@ -37,8 +37,8 @@ def generate_launch_description():
 
         Node(
             package='neroControl',
-            executable='altitude.py',
-            name='altitude_bridge',
+            executable='sensor_fusion.py',
+            name='sensor_fusion',
             output='screen',
         ),
 
@@ -87,11 +87,5 @@ def generate_launch_description():
             output='screen'
         ),
 
-        Node(
-            package='neroControl',
-            executable='controlador.py',
-            name='controlador',
-            output='screen'
-        ),
     ])
  

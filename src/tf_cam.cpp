@@ -159,7 +159,7 @@ private:
     // 2) camera_link — pitch comandado (relativo a base_link)
     auto &tf_cam = tfs[1];
     tf_cam.header.stamp = stamp;
-    tf_cam.header.frame_id = "base_link";
+    tf_cam.header.frame_id = "base_link_ekf";
     tf_cam.child_frame_id = "camera_link";
     tf_cam.transform.translation.x = 0.12;
     tf_cam.transform.translation.y = 0.0;

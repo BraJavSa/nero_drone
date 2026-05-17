@@ -1,308 +1,238 @@
-%% =========================================================
-%  bebop_article_plotter.m
-%  UAV Flight Telemetry – Publication-Quality Plotter
-%  ---------------------------------------------------------
-%  Generates IEEE/Elsevier-ready figures from a Bebop CSV.
-%
-%  Usage:
-%    bebop_article_plotter          % opens GUI file picker
-%    bebop_article_plotter('file.csv')
-%
-%  Exports (optional – see EXPORT section at the bottom):
-%    PDF   (vector, print-ready)
-%    PNG   (300 dpi)
-%    EPS   (for LaTeX \includegraphics)
-%% =========================================================
+clear; close all; clc;
 
-function bebop_article_plotter(csv_path)
+Ku = diag([0.8417,  0.8354,  3.9660,  9.8524]);
+Kv = diag([0.18227, 0.17095, 4.00100, 4.72950]);
 
-    % ── 0. RESOLVE CSV PATH ──────────────────────────────────────────
-    if nargin < 1 || isempty(csv_path)
-        [fname, fpath] = uigetfile('*.csv', 'Select Bebop CSV file');
-        if isequal(fname, 0)
-            disp('[!] No file selected. Aborting.');
-            return
-        end
-        csv_path = fullfile(fpath, fname);
-    end
-    fprintf('[→] Loading: %s\n', csv_path);
+PHASE_DUR    = 4.0;
+N_PHASES     = 5;
+PHASE_COLORS = [
+    0.933 0.933 0.996;
+    0.882 0.961 0.933;
+    0.980 0.925 0.906;
+    0.980 0.933 0.855;
+    0.945 0.937 0.910;
+];
 
-    % ── 1. LOAD & PREPROCESS ─────────────────────────────────────────
-    df = readtable(csv_path);
-    df.t_rel = df.time - df.time(1);
 
-    % Yaw correction: wrap difference into [−π, π]
-    if ismember('yaw', df.Properties.VariableNames) && ...
-       ismember('yawd', df.Properties.VariableNames)
-        d = df.yaw - df.yawd;
-        df.yaw_corr = df.yawd + atan2(sin(d), cos(d));
-    elseif ismember('yaw', df.Properties.VariableNames)
-        df.yaw_corr = df.yaw;
-    else
-        df.yaw_corr = zeros(height(df), 1);
-    end
+C_MEAS_V = [0.000 0.447 0.698];
+C_MOD_V  = [0.700 0.090 0.090];
 
-    t      = df.t_rel;
-    t_lim  = [min(t), max(t)];
-    stem_  = get_filestem(csv_path);
+C_MEAS_P = [0.549 0.114 0.255];   
+C_MOD_P  = [0.929 0.569 0.388];   
 
-    % ── 2. GLOBAL STYLE SETTINGS ─────────────────────────────────────
-    set_publication_style();
+C_CTRL = [0.333 0.333 0.333];
 
-    % ── 3. FULL TELEMETRY FIGURE  (4 × 2) ───────────────────────────
-    fig = figure('Name', 'UAV Telemetry', 'NumberTitle', 'off', ...
-                 'Units', 'inches', 'Position', [1 1 7.16 9.0]);
+FIG_W = 9;
+FIG_H = 18;
 
-    % Color palette (Okabe–Ito, colorblind-safe)
-    C_meas = [0.000, 0.447, 0.698];   % blue
-    C_ref  = [0.835, 0.369, 0.000];   % vermillion
-    C_cmd  = [0.000, 0.620, 0.451];   % teal-green
+S     = load('/home/brayan/ros2_ws/src/neroControl/data/sysid_data.mat');
+t     = S.t(:);
+u     = S.u;
+pos   = S.pos;
+vel_w = S.vel;
 
-    % Line styles
-    LS_meas = '-';   LW_meas = 1.3;
-    LS_ref  = '--';  LW_ref  = 1.1;
-    LS_cmd  = ':';   LW_cmd  = 1.0;
+DISCARD = 10;
+t     = t    (DISCARD+1 : end);
+u     = u    (DISCARD+1 : end, :);
+pos   = pos  (DISCARD+1 : end, :);
+vel_w = vel_w(DISCARD+1 : end, :);
 
-    % ── Column 0 : Position / Attitude ───────────────────────────────
-    pos_data = { ...
-        'x',        'xd',   '$x$ [m]',          '$x$ position'; ...
-        'y',        'yd',   '$y$ [m]',          '$y$ position'; ...
-        'z',        'zd',   '$z$ [m]',          '$z$ position'; ...
-        'yaw_corr', 'yawd', '$\psi$ [rad]',     'Yaw $\psi$'; ...
-    };
 
-    for i = 1:4
-        ax = subplot(4, 2, 2*i - 1);
-        hold(ax, 'on');
 
-        meas_col = pos_data{i, 1};
-        ref_col  = pos_data{i, 2};
-        ylabel_  = pos_data{i, 3};
-        title_   = pos_data{i, 4};
+[v_p_b, p_p_w, v_m_b] = simulate_stepbystep(t, u, pos, vel_w, Ku, Kv);
 
-        if ismember(meas_col, df.Properties.VariableNames)
-            plot(ax, t, df.(meas_col), LS_meas, ...
-                 'Color', C_meas, 'LineWidth', LW_meas);
-        end
-        if ismember(ref_col, df.Properties.VariableNames)
-            plot(ax, t, df.(ref_col), LS_ref, ...
-                 'Color', C_ref, 'LineWidth', LW_ref);
-        end
+vel_labels = {'vx','vy','vz','vpsi'};
+pos_labels = {'etax','etay','etaz','etapsi'};
 
-        style_axes(ax, t_lim, [], ylabel_, title_);
-        if i == 4
-            xlabel(ax, '$t$ [s]', 'Interpreter', 'latex');
-        end
-    end
+valid_v = ~isnan(v_p_b(:,1));
+valid_p = ~isnan(p_p_w(:,1));
 
-    % ── Column 1 : Velocities / Rates ────────────────────────────────
-    vel_data = { ...
-        'cmd_linx', 'linx_b', 'vxd_b',   '$v_x$ [m/s]',            'Velocity $v_x$'; ...
-        'cmd_liny', 'liny_b', 'vyd_b',   '$v_y$ [m/s]',            'Velocity $v_y$'; ...
-        'cmd_linz', 'linz_b', 'vzd_b',   '$v_z$ [m/s]',            'Velocity $v_z$'; ...
-        'cmd_angz', 'yaw_rate','wyawd',  '$\dot{\psi}$ [rad/s]',   'Yaw rate $\dot{\psi}$'; ...
-    };
-    VEL_LIM = 1.8;
+fprintf('\n===== RMSE & R² — Velocidad (cuerpo) =====\n');
+for i = 1:4
+    meas = v_m_b(valid_v, i);
+    pred = v_p_b(valid_v, i);
+    rmse = sqrt(mean((meas - pred).^2));
+    ss_res = sum((meas - pred).^2);
+    ss_tot = sum((meas - mean(meas)).^2);
+    r2   = 1 - ss_res / ss_tot;
+    fprintf('  %5s  ->  RMSE = %.6f   R² = %.6f\n', vel_labels{i}, rmse, r2);
+end
 
-    for i = 1:4
-        ax = subplot(4, 2, 2*i);
-        hold(ax, 'on');
+fprintf('\n===== RMSE & R² — Posición (mundo)   =====\n');
+for i = 1:4
+    meas = pos(valid_p, i);
+    pred = p_p_w(valid_p, i);
+    rmse = sqrt(mean((meas - pred).^2));
+    ss_res = sum((meas - pred).^2);
+    ss_tot = sum((meas - mean(meas)).^2);
+    r2   = 1 - ss_res / ss_tot;
+    fprintf('  %5s  ->  RMSE = %.6f   R² = %.6f\n', pos_labels{i}, rmse, r2);
+end
+fprintf('\n');
+% ──────────────────────────────────────────────────────────────────────────
 
-        cmd_col  = vel_data{i, 1};
-        meas_col = vel_data{i, 2};
-        ref_col  = vel_data{i, 3};
-        ylabel_  = vel_data{i, 4};
-        title_   = vel_data{i, 5};
+ylabels_all = {
+    '$\nu_{x}$ [m/s]',      '$\nu_{y}$ [m/s]', ...
+    '$\nu_{z}$ [m/s]',      '$\nu_{\psi}$ [rad/s]', ...
+    '$\eta_{x}$ [m]',       '$\eta_{y}$ [m]', ...
+    '$\eta_{z}$ [m]',       '$\eta_{\psi}$ [rad]'
+};
 
-        if ismember(cmd_col, df.Properties.VariableNames)
-            plot(ax, t, df.(cmd_col), LS_cmd, ...
-                 'Color', C_cmd, 'LineWidth', LW_cmd);
-        end
-        if ismember(meas_col, df.Properties.VariableNames)
-            plot(ax, t, df.(meas_col), LS_meas, ...
-                 'Color', C_meas, 'LineWidth', LW_meas);
-        end
-        if ismember(ref_col, df.Properties.VariableNames)
-            plot(ax, t, df.(ref_col), LS_ref, ...
-                 'Color', C_ref, 'LineWidth', LW_ref);
+measured_all  = [v_m_b, pos];
+predicted_all = [v_p_b, p_p_w];
+
+make_combined_figure(t, u, measured_all, predicted_all, ...
+    C_MEAS_V, C_MOD_V, C_MEAS_P, C_MOD_P, C_CTRL, ...
+    PHASE_DUR, N_PHASES, PHASE_COLORS, ...
+    ylabels_all, FIG_W, FIG_H);
+
+
+function make_combined_figure(t, u, measured, predicted, ...
+        C_MEAS_V, C_MOD_V, C_MEAS_P, C_MOD_P, C_CTRL, ...
+        PHASE_DUR, N_PHASES, PHASE_COLORS, ...
+        ylabels, FIG_W, FIG_H)
+
+    n     = 8;
+    valid = ~isnan(predicted(:,1));
+
+    fig = figure('Units','inches','Position',[1 1 FIG_W FIG_H],'Color','w');
+
+    left_m  = 0.13;
+    width_m = 0.84;
+    bot_m   = 0.07;
+    top_m   = 0.985;
+    gap     = 0.010;
+    h_each  = (top_m - bot_m - (n-1)*gap) / n;
+
+    ax = gobjects(n,1);
+
+    for i = 1:n
+        
+        if i <= 4
+            C_MEAS = C_MEAS_V;
+            C_MOD  = C_MOD_V;
+        else
+            C_MEAS = C_MEAS_P;
+            C_MOD  = C_MOD_P;
         end
 
-        style_axes(ax, t_lim, [-VEL_LIM VEL_LIM], ylabel_, title_);
-        if i == 4
-            xlabel(ax, '$t$ [s]', 'Interpreter', 'latex');
+        bot_i = bot_m + (n-i)*(h_each + gap);
+
+        ax(i) = subplot('Position',[left_m, bot_i, width_m, h_each]);
+        hold on; box off;
+        set(ax(i), 'FontName','Times New Roman','FontSize',8, ...
+            'TickDir','out','XGrid','on','YGrid','on', ...
+            'GridLineStyle','--','GridAlpha',0.5, ...
+            'GridColor',[0.69 0.69 0.69]);
+
+        
+        for p = 1:N_PHASES
+            x0 = (p-1)*PHASE_DUR;
+            x1 =  p   *PHASE_DUR;
+            fill([x0 x1 x1 x0], [-1e6 -1e6 1e6 1e6], ...
+                 PHASE_COLORS(p,:), 'EdgeColor','none', ...
+                 'FaceAlpha',0.30, 'HandleVisibility','off');
+        end
+
+        
+        plot(t, measured(:,i), '-', 'Color',C_MEAS, 'LineWidth',1.4);
+
+        
+        plot(t(valid), predicted(valid,i), '--', 'Color',C_MOD, 'LineWidth',1.4);
+
+        
+        alldata = [measured(:,i); predicted(valid,i)];
+        ymin_d  = min(alldata, [], 'omitnan');
+        ymax_d  = max(alldata, [], 'omitnan');
+        yspan   = ymax_d - ymin_d;
+        if yspan < 1e-6; yspan = 1; end
+        ypad    = 0.12 * yspan;
+        ylim([ymin_d - ypad, ymax_d + ypad]);
+
+        u_col  = mod(i-1, 4) + 1;
+        u_sig  = u(:, u_col);
+        u_min  = min(u_sig);
+        u_max  = max(u_sig);
+        u_span = u_max - u_min;
+        if u_span < 1e-9; u_span = 1; end
+        y_lo   = ymin_d - ypad;
+        y_hi   = ymax_d + ypad;
+        u_plot = y_lo + (u_sig - u_min) ./ u_span .* (y_hi - y_lo);
+        stairs(t, u_plot, '-.', 'Color',[C_CTRL 0.55], 'LineWidth',0.7, ...
+               'HandleVisibility','off');
+
+        xlim([t(1) t(end)]);
+
+        ylabel(ylabels{i}, 'Interpreter','latex', ...
+               'FontSize',16, 'FontName','Times New Roman');
+
+        if i < n
+            set(ax(i),'XTickLabel',[]);
+        else
+            xlabel('Time [s]','FontName','Times New Roman','FontSize',10);
         end
     end
 
-    % ── Shared legend ─────────────────────────────────────────────────
-    h_meas = plot(NaN, NaN, LS_meas, 'Color', C_meas, 'LineWidth', LW_meas);
-    h_ref  = plot(NaN, NaN, LS_ref,  'Color', C_ref,  'LineWidth', LW_ref);
-    h_cmd  = plot(NaN, NaN, LS_cmd,  'Color', C_cmd,  'LineWidth', LW_cmd);
 
-    leg = legend([h_meas h_ref h_cmd], ...
-        {'Measured', 'Reference', 'Command'}, ...
-        'Orientation', 'horizontal', ...
-        'Location', 'southoutside', ...
-        'Interpreter', 'latex', ...
-        'FontSize', 8, ...
-        'Box', 'on');
-    leg.Position(2) = 0.005;
+    annotation(fig,'line', ...
+        [left_m, left_m+width_m], ...
+        [bot_m + 4*(h_each+gap) - gap/2, bot_m + 4*(h_each+gap) - gap/2], ...
+        'Color',[0.5 0.5 0.5],'LineStyle','--','LineWidth',0.8);
 
-    % ── Suptitle ──────────────────────────────────────────────────────
-    sgtitle(fig, sprintf('UAV Flight Telemetry — %s', stem_), ...
-            'Interpreter', 'none', 'FontWeight', 'bold', 'FontSize', 10, ...
-            'FontName', 'Times New Roman');
+    
+    h1 = plot(ax(1), NaN, NaN, '-',  'Color',C_MEAS_V, 'LineWidth',1.4);
+    h2 = plot(ax(1), NaN, NaN, '--', 'Color',C_MOD_V,  'LineWidth',1.4);
+    h3 = plot(ax(1), NaN, NaN, '-',  'Color',C_MEAS_P, 'LineWidth',1.4);
+    h4 = plot(ax(1), NaN, NaN, '--', 'Color',C_MOD_P,  'LineWidth',1.4);
+    h5 = plot(ax(1), NaN, NaN, '-.', 'Color',[C_CTRL 0.6], 'LineWidth',1.0);
 
-    % ── EXPORT ────────────────────────────────────────────────────────
-    % Uncomment the lines you need:
-    %
-    % export_figure(fig, stem_, 'pdf')   % vector PDF  (recommended)
-    % export_figure(fig, stem_, 'png')   % 300 dpi PNG
-    % export_figure(fig, stem_, 'epsc')  % colour EPS for LaTeX
-    %
-    % Or export individual subplot (see build_single_axis below).
+    leg = legend([h1 h2 h3 h4 h5], ...
+        {'$\mathbf{\nu}_{\scriptscriptstyle\mathrm{Meas}}$', ...
+         '$\mathbf{\nu}_{\scriptscriptstyle\mathrm{Model}}$', ...
+         '$\mathbf{\eta}_{\scriptscriptstyle\mathrm{Meas}}$', ...
+         '$\mathbf{\eta}_{\scriptscriptstyle\mathrm{Model}}$', ...
+         '$U_{\scriptscriptstyle\mathrm{Input}}$'}, ...
+        'Interpreter','latex','FontSize',18, ...
+        'Orientation','horizontal','Box','off','Units','normalized');
+    leg.Position(1) = 0.5 - leg.Position(3)/2;
+    leg.Position(2) = 0.001;
 
-    % ── Show ──────────────────────────────────────────────────────────
-    drawnow;
-    fprintf('[✓] Done.\n');
+    % Export PDF
+    fig.PaperUnits    = 'inches';
+    fig.PaperSize     = [FIG_W FIG_H];
+    fig.PaperPosition = [0 0 FIG_W FIG_H];
 
-end  % main function
-
-
-%% =========================================================
-%  build_single_axis
-%  ---------------------------------------------------------
-%  Creates a tight single-panel figure for a specific variable.
-%  Ideal for half-column or quarter-column journal floats.
-%
-%  Example:
-%    df = preprocess_csv('flight.csv');
-%    fig = build_single_axis(df, 'z', 'zd', [], ...
-%          '$z$ [m]', 'Position $z$', [3.5 2.2]);
-%% =========================================================
-function fig = build_single_axis(df, meas_col, ref_col, cmd_col, ...
-                                  ylabel_str, title_str, figsize)
-
-    set_publication_style();
-
-    C_meas = [0.000, 0.447, 0.698];
-    C_ref  = [0.835, 0.369, 0.000];
-    C_cmd  = [0.000, 0.620, 0.451];
-
-    if nargin < 7 || isempty(figsize), figsize = [3.5 2.2]; end
-
-    fig = figure('Units', 'inches', 'Position', [1 1 figsize(1) figsize(2)]);
-    ax  = axes(fig);
-    hold(ax, 'on');
-
-    t     = df.t_rel;
-    t_lim = [min(t), max(t)];
-    h     = gobjects(0);
-    lbl   = {};
-
-    if ~isempty(meas_col) && ismember(meas_col, df.Properties.VariableNames)
-        h(end+1) = plot(ax, t, df.(meas_col), '-',  'Color', C_meas, 'LineWidth', 1.3);
-        lbl{end+1} = 'Measured';
-    end
-    if ~isempty(ref_col) && ismember(ref_col, df.Properties.VariableNames)
-        h(end+1) = plot(ax, t, df.(ref_col),  '--', 'Color', C_ref,  'LineWidth', 1.1);
-        lbl{end+1} = 'Reference';
-    end
-    if ~isempty(cmd_col) && ismember(cmd_col, df.Properties.VariableNames)
-        h(end+1) = plot(ax, t, df.(cmd_col),  ':',  'Color', C_cmd,  'LineWidth', 1.0);
-        lbl{end+1} = 'Command';
-    end
-
-    style_axes(ax, t_lim, [], ylabel_str, title_str);
-    xlabel(ax, '$t$ [s]', 'Interpreter', 'latex');
-    if ~isempty(h)
-        legend(ax, h, lbl, 'Interpreter', 'latex', 'FontSize', 8, 'Location', 'best');
-    end
-
-    set(fig, 'PaperUnits', 'inches', 'PaperSize', figsize, ...
-             'PaperPosition', [0 0 figsize(1) figsize(2)]);
-    drawnow;
+    exportgraphics(fig, 'sysid_combined.pdf', ...
+        'ContentType','vector','BackgroundColor','white');
 end
 
 
-%% =========================================================
-%  HELPERS
-%% =========================================================
+function [v_p_b, p_p_w, v_m_b] = simulate_stepbystep(t, u, pos, vel_world, Ku, Kv)
+    N     = length(t);
+    v_p_b = nan(N,4);
+    p_p_w = nan(N,4);
+    v_m_b = nan(N,4);
+    a_lim = 0.2;
 
-function set_publication_style()
-%SET_PUBLICATION_STYLE  Apply journal-ready global defaults.
-    set(groot, ...
-        'defaultAxesFontName',         'Times New Roman', ...
-        'defaultAxesFontSize',         9, ...
-        'defaultAxesTitleFontWeight',  'normal', ...
-        'defaultAxesTickLabelInterpreter', 'latex', ...
-        'defaultAxesXMinorTick',       'on', ...
-        'defaultAxesYMinorTick',       'on', ...
-        'defaultAxesLineWidth',        0.7, ...
-        'defaultAxesBox',              'off', ...
-        'defaultAxesXGrid',            'on', ...
-        'defaultAxesYGrid',            'on', ...
-        'defaultAxesGridAlpha',        0.4, ...
-        'defaultAxesGridLineStyle',    '--', ...
-        'defaultAxesGridColor',        [0.7 0.7 0.7], ...
-        'defaultLineLineWidth',        1.2, ...
-        'defaultTextFontName',         'Times New Roman', ...
-        'defaultTextInterpreter',      'latex', ...
-        'defaultLegendInterpreter',    'latex', ...
-        'defaultColorbarTickLabelInterpreter', 'latex' ...
-    );
-end
+    p_p_w(1,:) = pos(1,:);
+    R0         = rot_mat(pos(1,4));
+    v_p_b(1,:) = (R0' * vel_world(1,:)')';
 
-% ─────────────────────────────────────────────────────────
-function style_axes(ax, x_lim, y_lim, ylabel_str, title_str)
-%STYLE_AXES  Apply consistent cosmetics to a single axes object.
-    ax.XLim = x_lim;
-    if ~isempty(y_lim)
-        ax.YLim = y_lim;
+    for k = 1:N-1
+        dt         = t(k+1) - t(k);
+        R_bw       = rot_mat(pos(k,4));
+        xdot_b     = (R_bw' * vel_world(k,:)')';
+        v_m_b(k,:) = xdot_b;
+        xddot      = (Ku * u(k,:)')' - (Kv * xdot_b')';
+        xddot(1:3) = max(min(xddot(1:3), a_lim), -a_lim);
+        v_p_b(k+1,:) = xdot_b    + xddot         * dt;
+        p_p_w(k+1,:) = pos(k,:)  + vel_world(k,:) * dt;
     end
-    ylabel(ax, ylabel_str, 'Interpreter', 'latex', 'FontSize', 9);
-    title(ax, title_str,   'Interpreter', 'latex', 'FontSize', 9, ...
-          'HorizontalAlignment', 'left', 'Units', 'normalized', ...
-          'Position', [0, 1.02, 0]);
-    ax.TickDir         = 'out';
-    ax.FontName        = 'Times New Roman';
-    ax.FontSize        = 8;
-    ax.XColor          = [0.2 0.2 0.2];
-    ax.YColor          = [0.2 0.2 0.2];
-    ax.GridColor       = [0.7 0.7 0.7];
-    ax.GridAlpha       = 0.45;
-    ax.MinorGridAlpha  = 0.25;
-    ax.Layer           = 'top';        % grid behind data
+    v_m_b(N,:) = (rot_mat(pos(N,4))' * vel_world(N,:)')';
 end
 
-% ─────────────────────────────────────────────────────────
-function export_figure(fig, stem_, format_)
-%EXPORT_FIGURE  Save a figure to PDF, PNG, or EPS.
-    out_dir = fullfile(pwd, 'article_figures');
-    if ~exist(out_dir, 'dir'), mkdir(out_dir); end
 
-    switch lower(format_)
-        case 'pdf'
-            fname = fullfile(out_dir, [stem_ '.pdf']);
-            exportgraphics(fig, fname, ...
-                'ContentType', 'vector', ...
-                'BackgroundColor', 'white');
-        case 'png'
-            fname = fullfile(out_dir, [stem_ '.png']);
-            exportgraphics(fig, fname, ...
-                'Resolution', 300, ...
-                'BackgroundColor', 'white');
-        case {'eps', 'epsc'}
-            fname = fullfile(out_dir, [stem_ '.eps']);
-            print(fig, fname, '-depsc', '-r300');
-        otherwise
-            warning('Unknown format: %s', format_);
-            return
-    end
-    fprintf('[✓] Saved: %s\n', fname);
-end
-
-% ─────────────────────────────────────────────────────────
-function s = get_filestem(path_)
-%GET_FILESTEM  Return filename without extension.
-    [~, s, ~] = fileparts(path_);
+function R = rot_mat(psi)
+    c = cos(psi); s = sin(psi);
+    R = [c -s 0 0; s c 0 0; 0 0 1 0; 0 0 0 1];
 end

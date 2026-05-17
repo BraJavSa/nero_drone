@@ -104,8 +104,7 @@ install(PROGRAMS
   neroControl/controlador.py
   neroControl/sim.py
   neroControl/sim120.py
-  neroControl/altitude.py
-  neroControl/altitude_sim.py
+  neroControl/sensor_fusion.py
   neroControl/initial_frame.py
   neroControl/ontime_graphical.py
   neroControl/ref_trayectory.py
@@ -119,7 +118,10 @@ install(PROGRAMS
   neroControl/prueba_velocidad.py
   neroControl/land.py
   neroControl/smc_controller.py
-  neroControl/body_velocities_graph.py 
+  neroControl/body_velocities_graph.py
+  neroControl/model_validation.py
+  neroControl/model_plot_valdiation.py 
+  neroControl/logger_model.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -20,6 +20,15 @@ def generate_launch_description():
             output='screen'
         ),
         
+
+
+
+        Node(
+            package='neroControl',
+            executable='sensor_fusion.py',
+            name='sensor_fusion',
+            output='screen',
+        ),
         Node(
             package='neroControl',
             executable='initial_frame.py',
@@ -30,18 +39,19 @@ def generate_launch_description():
 
         Node(
             package='neroControl',
-            executable='altitude.py',
-            name='altitude_bridge',
-            output='screen',
-        ),
-
-
-        Node(
-            package='neroControl',
             executable='isfly',
             name='isfly',
             output='screen',
         ),
+        
+        # Node(
+        #     package='robot_localization',
+        #     executable='ekf_node',
+        #     name='bebop_ekf',
+        #     output='screen',
+        #     parameters=[ekf_config]
+        # ),
+
 
         Node(
             package='neroControl',
@@ -50,20 +60,13 @@ def generate_launch_description():
             output='screen'
         ),
 
-        Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='bebop_ekf',
-            output='screen',
-            parameters=[ekf_config]
-        ),
 
-        Node(
-            package='neroControl',
-            executable='tf_cam',
-            name='tf_cam',
-            output='screen'
-        ),
+        # Node(
+        #     package='neroControl',
+        #     executable='tf_cam',
+        #     name='tf_cam',
+        #     output='screen'
+        # ),
 
 
     ])

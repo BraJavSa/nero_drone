@@ -37,8 +37,8 @@ def generate_launch_description():
 
         Node(
             package='neroControl',
-            executable='altitude.py',
-            name='altitude_bridge',
+            executable='sensor_fusion.py',
+            name='sensor_fusion',
             output='screen',
         ),
 
@@ -65,12 +65,12 @@ def generate_launch_description():
             parameters=[ekf_config]
         ),
 
-        Node(
-            package='neroControl',
-            executable='tf_cam',
-            name='tf_cam',
-            output='screen'
-        ),
+        # Node(
+        #     package='neroControl',
+        #     executable='tf_cam',
+        #     name='tf_cam',
+        #     output='screen'
+        # ),
 
 
     ])

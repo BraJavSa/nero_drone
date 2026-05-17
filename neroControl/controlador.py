@@ -22,7 +22,7 @@ class Position:
 
 class Parameters:
     def __init__(self):
-        self.Model_simp = np.array([0.8417, 0.18227, 0.8354, 0.17095, 3.966, 4.001, 9.8524, 4.7295])
+        self.Model_simp = np.array([1.02625, 2.35400, 0.72230, 1.40995, 2.34511, 2.06254, 2.56992, 2.49211])
         self.b_uSat = np.array([1.0, 1.0, 1.0, 1.0])
 
 class SC:
@@ -34,7 +34,7 @@ class SC:
 class Bebop:
     def __init__(self, node: Node):
         self.node = node
-        frecuency = 30
+        frecuency = 10
         self.dt = 1/frecuency
         self.pPos = Position()
         self.pPar = Parameters()
@@ -47,21 +47,21 @@ class Bebop:
         self.base_opt = self.opt
         self.opt_params = {
             1: {
-                'ksp_x': 0.6,  'ksp_y': 1.2,  'ksp_z': 1.2527,  'ksp_psi': 5.0911,
-                'ksd_x': 1.0,  'ksd_y': 1.0,  'ksd_z': 4.5484,  'ksd_psi': 1.2455,
-                'kp_x': 2.0,  'kp_y': 2.0,  'kp_z': 1.8747,  'kp_psi': 2.7967,
-                'kd_x': 0.001,  'kd_y': 0.001,  'kd_z': 0.0000,  'kd_psi': 0.0000,
+                'ksp_x': 1.2,  'ksp_y': 1.2,  'ksp_z': 1.2527,  'ksp_psi':3.0,
+                'ksd_x': 0.7,  'ksd_y': 0.7,  'ksd_z': 2.5484,  'ksd_psi': 1.2455,
+                'kp_x': 1.95,  'kp_y': 1.95,  'kp_z': 1.5747,  'kp_psi': 2.0,
+                'kd_x': 0.00,  'kd_y': 0.00,  'kd_z': 0.0000,  'kd_psi': 0.0000,
             },
             2: {
-                'ksp_x': 0.1321,  'ksp_y': 0.9917,  'ksp_z': 1.2527,  'ksp_psi': 5.0911,
-                'ksd_x': 0.3908,  'ksd_y': 0.6230,  'ksd_z': 4.5484,  'ksd_psi': 1.2455,
-                'kp_x': 1.6856,  'kp_y': 1.2564,  'kp_z': 1.8747,  'kp_psi': 2.7967,
+                'ksp_x': 0.1321,  'ksp_y': 0.9917,  'ksp_z': 1.2527,  'ksp_psi': 4,
+                'ksd_x': 0.3908,  'ksd_y': 0.6230,  'ksd_z': 4.5484,  'ksd_psi': 1.2,
+                'kp_x': 1.6856,  'kp_y': 1.2564,  'kp_z': 1.8747,  'kp_psi': 2.5,
                 'kd_x': 1.0,  'kd_y': 1.0,  'kd_z': 1.0,  'kd_psi': 1.0,
             },
             3: {
-                'ksp_x': 0.6,  'ksp_y': 1.2,  'ksp_z': 1.2527,  'ksp_psi': 5.0911,
-                'ksd_x': 1.0,  'ksd_y': 1.0,  'ksd_z': 4.5484,  'ksd_psi': 1.2455,
-                'kp_x': 2.0,  'kp_y': 2.0,  'kp_z': 1.8747,  'kp_psi': 2.7967,
+                'ksp_x': 0.6,  'ksp_y': 1.2,  'ksp_z': 1.2527,  'ksp_psi': 4,
+                'ksd_x': 1.0,  'ksd_y': 1.0,  'ksd_z': 4.5484,  'ksd_psi': 1.2,
+                'kp_x': 2.0,  'kp_y': 2.0,  'kp_z': 1.8747,  'kp_psi': 2.5,
                 'kd_x': 1.0,  'kd_y': 1.0,  'kd_z': 1.0,  'kd_psi': 1.0,
             },
             4: {
@@ -153,7 +153,7 @@ class Bebop:
             self.pSC.b_Ud = alpha * b_Ud_raw + (1.0 - alpha) * self.pSC.b_Ud_ant
             self.pSC.b_Ud_ant = np.copy(self.pSC.b_Ud)
         else:
-            alpha = 0.35
+            alpha = 0.6
             self.pSC.b_Ud = alpha * b_Ud_raw + (1.0 - alpha) * self.pSC.b_Ud_ant
             self.pSC.b_Ud_ant = np.copy(self.pSC.b_Ud)
 
@@ -170,7 +170,7 @@ class NeroDroneNode(Node):
     def __init__(self):
         super().__init__("neroControl_node")
         self.drone = Bebop(self)
-        time = 1/30
+        time = self.drone.dt
         self.create_timer(time, self.control_loop)
 
     def control_loop(self):
