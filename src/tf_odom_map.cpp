@@ -1,4 +1,6 @@
-// ROS2 node for publishing a static identity transformation between the map and odom frames
+// Broadcasts the static or dynamic transform between the map and odometry frames.
+
+
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>

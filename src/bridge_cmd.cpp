@@ -1,4 +1,6 @@
-// ROS2 node for republishing safe command velocities to the Bebop drone
+// Republishes safely bounded velocity commands to the actual drone driver.
+
+
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 

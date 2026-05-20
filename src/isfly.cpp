@@ -1,4 +1,6 @@
-// ROS2 node for tracking and publishing the drone's flight status (flying vs. grounded)
+// Monitors the takeoff/landing state and publishes the current flight status flag.
+
+
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/bool.hpp>

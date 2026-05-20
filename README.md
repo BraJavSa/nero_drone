@@ -31,17 +31,17 @@ ros2 run neroControl velocity_logger
 4. Publish Reference Trajectory  
 Reference format: (x, y, z, yaw, dx, dy, dz, dyaw)  
 ```
-ros2 run neroControl ref_pos.py
+ros2 run neroControl position_ref.py
 ```
 
 5. Offline Plotting  
 ```bash
-ros2 run neroControl graphical.py
+ros2 run neroControl offline_plotter.py
 ```
 
 6. Real‑Time Plotting  
 ```bash
-ros2 run neroControl ontime_graphical.py
+ros2 run neroControl realtime_offline_plotter.py
 ```
 
 ## Launch Files
@@ -50,12 +50,12 @@ The package includes several `.launch.py` files to start different configuration
 
 | Launch File | Description |
 |---|---|
-| `full_bebop.launch.py` | Full launch of the Bebop control stack, including tracking nodes and controllers. |
-| `joy_full_bebop.launch.py` | Full launch configured to accept manual inputs via a joystick / gamepad. |
-| `sim_bebop.launch.py` | Launches the simulated environment for test and validation before real flights. |
-| `rviz_control.launch.py` | Launches control nodes alongside RViz visualization tools. |
-| `only_control.launch.py` | Starts only the controller nodes (useful if the driver is already running on a separate machine). |
-| `cam_control.launch.py` | Specific launch file for initializing camera tracking and movement controls. |
+| `full_vision_stack.launch.py` | Complete vision and state estimation stack including AprilTag tracking, RViz, and TF broadcasting. |
+| `camera_state_estimation.launch.py` | Camera and state estimation base without AprilTag tracking. |
+| `base_nodes.launch.py` | Base controller nodes without any visualization or safety mechanisms. |
+| `joystick_teleop.launch.py` | Configures the joypad inputs and maps them directly to velocity commands. |
+| `visualization_stack.launch.py` | Full state estimation stack combined with RViz visualization tools and safety watchdogs. |
+| `safe_core_nodes.launch.py` | Essential control and estimation nodes with an integrated safety watchdog (no visualization). |
 
 ## ROS 2 Topics
 

@@ -25,25 +25,20 @@ include_directories(
 )
 
 
-add_executable(joy2cmd src/joy2cmd.cpp)
-ament_target_dependencies(joy2cmd rclcpp sensor_msgs geometry_msgs std_msgs)
-target_link_libraries(joy2cmd ${OpenCV_LIBS})
+add_executable(joy_to_cmd src/joy_to_cmd.cpp)
+ament_target_dependencies(joy_to_cmd rclcpp sensor_msgs geometry_msgs std_msgs)
+target_link_libraries(joy_to_cmd ${OpenCV_LIBS})
 
-add_executable(apriltag_node src/apriltag_node.cpp)
-ament_target_dependencies(apriltag_node rclcpp OpenCV)
-target_link_libraries(apriltag_node apriltag ${OpenCV_LIBS})
+add_executable(april_tag_node src/april_tag_node.cpp)
+ament_target_dependencies(april_tag_node rclcpp OpenCV)
+target_link_libraries(april_tag_node apriltag ${OpenCV_LIBS})
 
-add_executable(beboptag src/beboptag.cpp)
-ament_target_dependencies(beboptag rclcpp sensor_msgs cv_bridge OpenCV)
-target_link_libraries(beboptag apriltag ${OpenCV_LIBS})
+add_executable(bebop_tag src/bebop_tag.cpp)
+ament_target_dependencies(bebop_tag rclcpp sensor_msgs cv_bridge OpenCV)
+target_link_libraries(bebop_tag apriltag ${OpenCV_LIBS})
 
-add_executable(ibvs src/ibvs.cpp)
-ament_target_dependencies(ibvs rclcpp sensor_msgs cv_bridge OpenCV )
-target_link_libraries(ibvs apriltag ${OpenCV_LIBS})
-
-
-add_executable(tf_cam src/tf_cam.cpp)
-ament_target_dependencies(tf_cam rclcpp tf2 tf2_ros geometry_msgs nav_msgs std_msgs tf2_geometry_msgs)
+add_executable(tf_camera src/tf_camera.cpp)
+ament_target_dependencies(tf_camera rclcpp tf2 tf2_ros geometry_msgs nav_msgs std_msgs tf2_geometry_msgs)
 
 add_executable(tf_tag_bebop src/tf_tag_bebop.cpp)
 ament_target_dependencies(tf_tag_bebop rclcpp sensor_msgs cv_bridge OpenCV tf2_ros geometry_msgs visualization_msgs tf2 tf2_geometry_msgs)
@@ -52,15 +47,8 @@ target_link_libraries(tf_tag_bebop apriltag ${OpenCV_LIBS})
 add_executable(velocity_logger src/velocity_logger.cpp)
 ament_target_dependencies(velocity_logger rclcpp nav_msgs geometry_msgs std_msgs tf2 tf2_geometry_msgs)
 
-add_executable(ref_vec_filter src/filtred.cpp)
-ament_target_dependencies(ref_vec_filter rclcpp geometry_msgs std_msgs visualization_msgs tf2_geometry_msgs)
-
 add_executable(safety_watchdog src/safe_watchdog.cpp)
 ament_target_dependencies(safety_watchdog rclcpp geometry_msgs std_msgs)
-
-add_executable(tag_pos src/tag_pos.cpp)
-ament_target_dependencies(tag_pos rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs cv_bridge OpenCV tf2 tf2_ros tf2_geometry_msgs)
-target_link_libraries(tag_pos apriltag ${OpenCV_LIBS})
 
 add_executable(safe_bebop_republisher src/bridge_cmd.cpp)
 ament_target_dependencies(safe_bebop_republisher rclcpp geometry_msgs)
@@ -71,57 +59,38 @@ ament_target_dependencies(isfly rclcpp std_msgs)
 add_executable(tf_odom_to_map src/tf_odom_map.cpp)
 ament_target_dependencies(tf_odom_to_map rclcpp tf2_ros geometry_msgs)
 
-# --- EJECUTABLE PBVS ACTUALIZADO ---
-add_executable(pbvs src/pbvs.cpp)
-ament_target_dependencies(pbvs
-  rclcpp
-  sensor_msgs
-  std_msgs
-  cv_bridge
-  OpenCV
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  geometry_msgs
-)
-# Enlace explícito a la librería encontrada y OpenCV
-target_link_libraries(pbvs ${APRILTAG_LIB} ${OpenCV_LIBS})
 
 # ---------------- Install ----------------
 install(TARGETS
-  joy2cmd apriltag_node beboptag tf_cam tf_tag_bebop velocity_logger
-  safety_watchdog safe_bebop_republisher ref_vec_filter isfly ibvs
-  tag_pos tf_odom_to_map pbvs 
+  joy_to_cmd april_tag_node bebop_tag tf_camera tf_tag_bebop velocity_logger
+  safety_watchdog safe_bebop_republisher isfly 
+  tf_odom_to_map  
   DESTINATION lib/${PROJECT_NAME}
 )
 
 # ---------------- Python nodes, Launch, Config, URDF ----------------
 install(PROGRAMS
-  neroControl/graphical.py
-  neroControl/apriltag.py
-  neroControl/bebop_control_gui.py
-  neroControl/ref_pos.py
-  neroControl/controlador.py
-  neroControl/sim.py
-  neroControl/sim120.py
-  neroControl/sensor_fusion.py
-  neroControl/initial_frame.py
-  neroControl/ontime_graphical.py
-  neroControl/ref_trayectory.py
-  neroControl/ref_multitrayectoria.py
-  neroControl/pypbsv.py
-  neroControl/pyibsv.py
-  neroControl/article_plotter.py
-  neroControl/trajectory_graphical_3d.py
-  neroControl/vel_controller.py
-  neroControl/pioneer_joy.py
-  neroControl/prueba_velocidad.py
-  neroControl/land.py
-  neroControl/smc_controller.py
-  neroControl/body_velocities_graph.py
-  neroControl/model_validation.py
-  neroControl/model_plot_valdiation.py 
-  neroControl/logger_model.py
+  nero_control/offline_plotter.py
+  nero_control/apriltag.py
+  nero_control/bebop_control_gui.py
+  nero_control/position_ref.py
+  nero_control/controller.py
+  nero_control/sensor_fusion.py
+  nero_control/initial_frame.py
+  nero_control/realtime_graphical.py
+  nero_control/trajectory_ref.py
+  nero_control/multi_trajectory_ref.py
+  nero_control/pbvs_controller.py
+  nero_control/ibvs_controller.py
+  nero_control/article_plotter.py
+  nero_control/trajectory_graphical_3d.py
+  nero_control/vel_controller.py
+  nero_control/pioneer_joy.py
+  nero_control/velocity_test.py
+  nero_control/land_cmd.py
+  nero_control/smc_controller.py
+  nero_control/body_velocities_plotter.py
+  nero_control/model_logger.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

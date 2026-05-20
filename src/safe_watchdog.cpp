@@ -1,4 +1,6 @@
-// Safety watchdog node that stops the drone if commands or references timeout
+// Safety watchdog that halts the drone if reference or odometry streams are lost.
+
+
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <std_msgs/msg/bool.hpp>

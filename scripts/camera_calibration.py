@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# ROSCameraCapture: ROS2 node that subscribes to a camera topic, captures images for chessboard-based calibration,
-# performs camera calibration using OpenCV, saves calibration parameters to disk, and undistorts all captured images.
-# Author: Brayan Saldarriaga-Mesa (bsaldarriaga@inaut.unsj.edu.ar), in collaboration with UFV.
+
+# Core script implementation.
 
 import rclpy
 from rclpy.node import Node

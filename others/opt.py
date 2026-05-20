@@ -1,3 +1,5 @@
+# Auxiliary script for handling small-scale variable optimizations.
+# Auxiliary script for handling small-scale variable optimizations.
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
@@ -15,12 +17,10 @@ class DroneIntelligentOptimizer(Node):
     def __init__(self):
         super().__init__('drone_intelligent_optimizer')
 
-        # 1. Configuración de Tiempos (10 Segundos)
         self.freq_odom = 30
         self.window_seconds = 10.0 
         self.buffer_size = int(self.freq_odom * self.window_seconds)
 
-        # 2. Valores Iniciales Reales
         self.axes = ['x', 'y', 'z', 'psi']
         self.params = {
             'ksp_x': 0.6, 'ksd_x': 1.5, 'kp_x': 0.3,
@@ -35,16 +35,13 @@ class DroneIntelligentOptimizer(Node):
         
         self.setup_logger()
 
-        # 3. Cliente de Servicio
         self.param_client = self.create_client(SetParameters, '/neroControl_node/set_parameters')
         
-        # Suscripciones
         self.create_subscription(Odometry, '/odometry/filtered', self.odom_callback, 10)
         self.create_subscription(Float64MultiArray, '/bebop/ref_vec', self.ref_callback, 10)
         
-        # Timer de Optimización
         self.timer = self.create_timer(self.window_seconds, self.optimize_logic)
-        self.get_logger().info("Nodo de Optimización iniciado. Monitoreando /neroControl_node cada 10s.")
+        self.get_logger().info("Nodo de Optimización started. Monitoreando /neroControl_node cada 10s.")
 
     def setup_logger(self):
         base_path = os.path.expanduser("~/ros2_ws/src/neroControl/data")
@@ -77,7 +74,6 @@ class DroneIntelligentOptimizer(Node):
                 self.current_ref[axis] = msg.data[i]
 
     def optimize_logic(self):
-        # Verificación no bloqueante del servicio
         if not self.param_client.service_is_ready():
             self.get_logger().warn("Esperando que el servicio /set_parameters esté disponible...")
             return
@@ -91,7 +87,6 @@ class DroneIntelligentOptimizer(Node):
                 log_row += [self.params[f'ksp_{axis}'], self.params[f'ksd_{axis}'], self.params[f'kp_{axis}'], 0.0, 0.0]
                 continue
 
-            # Análisis de datos
             errors = [abs(h['pos'] - h['ref']) for h in hist]
             avg_error = np.mean(errors)
             vels = [h['vel'] for h in hist]
@@ -100,7 +95,6 @@ class DroneIntelligentOptimizer(Node):
             
             overshoot = max(0, max_pos - self.current_ref[axis]) if self.current_ref[axis] >= 0 else max(0, abs(min_pos) - abs(self.current_ref[axis]))
 
-            # Ajustes
             if zero_crossings > 8:
                 self.params[f'ksd_{axis}'] *= (1.0 + self.LR * 1.5); self.params[f'kp_{axis}'] *= 0.92
             elif overshoot > 0.05:
@@ -108,7 +102,6 @@ class DroneIntelligentOptimizer(Node):
             elif avg_error > 0.10:
                 self.params[f'kp_{axis}'] *= (1.0 + self.LR * 1.0); self.params[f'ksp_{axis}'] *= (1.0 + self.LR * 0.7)
 
-            # Clamping
             self.params[f'kp_{axis}'] = np.clip(self.params[f'kp_{axis}'], 0.1, 7.0)
             self.params[f'ksd_{axis}'] = np.clip(self.params[f'ksd_{axis}'], 0.5, 12.0)
             self.params[f'ksp_{axis}'] = np.clip(self.params[f'ksp_{axis}'], 0.2, 4.0)
@@ -122,7 +115,6 @@ class DroneIntelligentOptimizer(Node):
         with open(self.log_filename, 'a', newline='') as f:
             csv.writer(f).writerow(log_row)
 
-        # Envío asíncrono
         req = SetParameters.Request()
         req.parameters = new_params
         future = self.param_client.call_async(req)

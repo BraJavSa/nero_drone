@@ -1,1 +1,0 @@
-# neroControl Python package

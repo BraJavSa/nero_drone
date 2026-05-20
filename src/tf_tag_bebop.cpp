@@ -1,4 +1,6 @@
-// ROS2 node for AprilTag detection and TF broadcasting of tag_0 in odom frame
+// Computes the coordinate transform between the detected AprilTag and the Bebop base link.
+
+
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>

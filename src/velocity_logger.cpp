@@ -1,3 +1,5 @@
+// High-performance C++ node for logging synchronized odometry and velocity commands.
+
 #include <chrono>
 #include <cmath>
 #include <ctime>
