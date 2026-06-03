@@ -74,7 +74,8 @@ install(PROGRAMS
   nero_control/apriltag.py
   nero_control/bebop_control_gui.py
   nero_control/position_ref.py
-  nero_control/controller.py
+  nero_control/extended_controller.py
+  nero_control/speed_controller.py
   nero_control/sensor_fusion.py
   nero_control/initial_frame.py
   nero_control/realtime_graphical.py

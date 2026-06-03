@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 
 # Image-Based Visual Servoing (IBVS) controller for vision-based target tracking.
+# Compatible with NumPy 2.x
 
 import threading
 
 import cv2
 import numpy as np
 import rclpy
-from cv_bridge import CvBridge
-from pupil_apriltags import Detector
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Float64MultiArray
+
+# NumPy 2 compatible import for pupil_apriltags / dt_apriltags
+try:
+    from pupil_apriltags import Detector
+except ImportError:
+    from dt_apriltags import Detector  # fallback: pip install dt-apriltags
 
 
 class PID:
@@ -73,15 +78,15 @@ class PID:
 class BebopTagNode(Node):
 
     TAG_FAMILY       = 'tag36h11'
-    TAG_SIZE         = 0.165
-    DESIRED_ALTITUDE = 0.80
-    CONTROL_HZ       = 30.0
+    TAG_SIZE         = 0.15
+    DESIRED_ALTITUDE = 1.5
+    CONTROL_HZ       = 15.0
 
     PID_DEFAULTS = {
-        'vx'  : dict(kp=0.3,  ki=0.05,  kd=0.06,      output_limit=1.0, deadband=0.02, integral_threshold=0.2),
-        'vy'  : dict(kp=0.45, ki=0.08,  kd=0.0000005, output_limit=1.0, deadband=0.02, integral_threshold=0.2),
-        'vz'  : dict(kp=0.50, ki=0.05,  kd=0.10,      output_limit=1.0, deadband=0.02, integral_threshold=0.1),
-        'vyaw': dict(kp=1.0,  ki=0.01,  kd=0.001,     output_limit=0.8, deadband=0.02, integral_threshold=0.1),
+        'vx'  : dict(kp=0.5,  ki=0.02, kd=0.06,      output_limit=1.0, deadband=0.005, integral_threshold=0.3),
+        'vy'  : dict(kp=0.6,  ki=0.03, kd=0.0000005, output_limit=1.0, deadband=0.005, integral_threshold=0.3),
+        'vz'  : dict(kp=0.50, ki=0.05, kd=0.10,      output_limit=1.0, deadband=0.005, integral_threshold=0.15),
+        'vyaw': dict(kp=1.0,  ki=0.01, kd=0.001,     output_limit=0.8, deadband=0.005, integral_threshold=0.15),
     }
 
     def __init__(self):
@@ -97,7 +102,6 @@ class BebopTagNode(Node):
             debug=0,
         )
 
-        self.bridge          = CvBridge()
         self.camera_matrix   = None
         self.has_camera_info = False
 
@@ -149,8 +153,20 @@ class BebopTagNode(Node):
     def camera_info_cb(self, msg):
         if self.has_camera_info:
             return
-        self.camera_matrix   = np.array(msg.k).reshape((3, 3))
+        # np.array(msg.k) es compatible con NumPy 2 sin cambios
+        self.camera_matrix   = np.array(msg.k, dtype=np.float64).reshape((3, 3))
         self.has_camera_info = True
+
+    @staticmethod
+    def _imgmsg_to_cv2(msg) -> np.ndarray:
+        """Conversión manual ROS Image → BGR ndarray, sin cv_bridge."""
+        n_ch = {'rgb8': 3, 'bgr8': 3, 'mono8': 1,
+                'rgba8': 4, 'bgra8': 4}.get(msg.encoding, 3)
+        img = np.frombuffer(bytes(msg.data), dtype=np.uint8).reshape(
+            msg.height, msg.width, n_ch)
+        if msg.encoding == 'rgb8':
+            img = img[:, :, ::-1]   # RGB → BGR
+        return np.ascontiguousarray(img)
 
     @staticmethod
     def _wrap_angle(angle: float) -> float:
@@ -161,7 +177,7 @@ class BebopTagNode(Node):
             return
 
         try:
-            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            frame = self._imgmsg_to_cv2(msg)
         except Exception:
             return
 
@@ -172,10 +188,10 @@ class BebopTagNode(Node):
             gray,
             estimate_tag_pose=True,
             camera_params=[
-                self.camera_matrix[0, 0],
-                self.camera_matrix[1, 1],
-                self.camera_matrix[0, 2],
-                self.camera_matrix[1, 2],
+                float(self.camera_matrix[0, 0]),
+                float(self.camera_matrix[1, 1]),
+                float(self.camera_matrix[0, 2]),
+                float(self.camera_matrix[1, 2]),
             ],
             tag_size=self.TAG_SIZE,
         )
@@ -184,7 +200,11 @@ class BebopTagNode(Node):
             det  = detections[0]
             u, v = det.center
             pts  = det.corners
-            alt  = float(det.pose_t.flatten()[2])
+
+            # det.pose_t puede ser ndarray con shape (3,1) o (3,) según versión;
+            # np.asarray + flatten() es seguro en NumPy 2
+            pose_t = np.asarray(det.pose_t, dtype=np.float64).flatten()
+            alt    = float(pose_t[2])
 
             e_u   = ((cols / 2.0) - u) / (cols / 2.0)
             e_v   = ((rows / 2.0) - v) / (rows / 2.0)
@@ -222,11 +242,14 @@ class BebopTagNode(Node):
 
     def _publish(self, vx, vy, vz, vyaw):
         msg      = Float64MultiArray()
-        msg.data = [0.0] * 8
-        msg.data[4] = float(vx)
-        msg.data[5] = float(vy)
-        msg.data[6] = float(vz)
-        msg.data[7] = float(vyaw)
+        msg.data = [
+            0.0, 0.0, 0.0, 0.0,   # eta_d
+            float(vx),
+            float(vy),
+            float(vz),
+            float(vyaw),           # nu_d
+            0.0, 0.0, 0.0, 0.0    # alpha_d
+        ]
         self.pub_ref.publish(msg)
 
 

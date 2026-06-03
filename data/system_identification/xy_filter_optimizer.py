@@ -5,7 +5,9 @@
 Identificación dinámica Bebop
 =================================
 
-Ahora NO se usan vx_b_full ni vy_b_full del Bebop.
+Modelo TOTALMENTE DIAGONAL.
+
+NO se usan vx_b_full ni vy_b_full del Bebop.
 
 Las velocidades body se reconstruyen así:
 
@@ -21,9 +23,12 @@ Las velocidades body se reconstruyen así:
         ↓
     identificacion
 
-Luego se busca automáticamente el mejor filtro
-(alpha_x, beta_x, alpha_y, beta_y)
-maximizando el FIT de posición.
+Cada canal depende SOLO de sí mismo:
+
+vx(k+1) = ax*vx(k) + bx*ux(k)
+vy(k+1) = ay*vy(k) + by*uy(k)
+vz(k+1) = az*vz(k) + bz*uz(k)
+r(k+1)  = ar*r(k)  + br*upsi(k)
 
 """
 
@@ -79,41 +84,7 @@ def alpha_beta_filter(measurements, alpha, beta, dt):
     return out
 
 
-
-def identify_coupled(vx, vy, r, ux, uy, upsi, min_input):
-
-    Phi = np.column_stack([
-        vx[:-1],
-        vy[:-1],
-        r[:-1],
-
-        ux[:-1],
-        uy[:-1],
-        upsi[:-1],
-    ])
-
-    mask = (
-        (np.abs(ux[:-1]) > min_input)
-        |
-        (np.abs(uy[:-1]) > min_input)
-    )
-
-    theta_x, *_ = np.linalg.lstsq(
-        Phi[mask],
-        vx[1:][mask],
-        rcond=None
-    )
-
-    theta_y, *_ = np.linalg.lstsq(
-        Phi[mask],
-        vy[1:][mask],
-        rcond=None
-    )
-
-    return theta_x, theta_y
-
-
-def identify_decoupled(v, u_in, min_input):
+def identify_diagonal(v, u_in, min_input):
 
     y = v[1:]
 
@@ -172,7 +143,6 @@ def rms(a, b):
     return np.sqrt(np.mean((a - b) ** 2))
 
 
-
 print("\nReconstruyendo velocidades body...")
 
 x_s = savgol_filter(x_real_full, 11, 3)
@@ -205,8 +175,7 @@ r_f = alpha_beta_filter(
     r_b_full,
     ALPHA_YAW,
     BETA_YAW,
-    dt
-)
+    dt)
 
 
 alphas = np.linspace(0.02, 0.4, 8)
@@ -236,7 +205,6 @@ for ax in alphas:
                     end=""
                 )
 
-
                 vx_f = alpha_beta_filter(
                     vx_body_raw,
                     ax,
@@ -250,7 +218,6 @@ for ax in alphas:
                     by,
                     dt
                 )
-
 
                 delay = DELAY
 
@@ -277,24 +244,25 @@ for ax in alphas:
 
                 N = len(ux)
 
-
-                theta_x, theta_y = identify_coupled(
+                alpha_x, beta_x = identify_diagonal(
                     vx,
-                    vy,
-                    r,
                     ux,
-                    uy,
-                    upsi,
                     MIN_INPUT
                 )
 
-                alpha_z, beta_z = identify_decoupled(
+                alpha_y, beta_y = identify_diagonal(
+                    vy,
+                    uy,
+                    MIN_INPUT
+                )
+
+                alpha_z, beta_z = identify_diagonal(
                     vz,
                     uz,
                     MIN_INPUT
                 )
 
-                alpha_r, beta_r = identify_decoupled(
+                alpha_r, beta_r = identify_diagonal(
                     r,
                     upsi,
                     MIN_INPUT
@@ -303,17 +271,17 @@ for ax in alphas:
                 Ad = np.array([
 
                     [
-                        theta_x[0],
-                        theta_x[1],
+                        alpha_x,
                         0.0,
-                        theta_x[2]
+                        0.0,
+                        0.0
                     ],
 
                     [
-                        theta_y[0],
-                        theta_y[1],
                         0.0,
-                        theta_y[2]
+                        alpha_y,
+                        0.0,
+                        0.0
                     ],
 
                     [
@@ -334,17 +302,17 @@ for ax in alphas:
                 Bd = np.array([
 
                     [
-                        theta_x[3],
-                        theta_x[4],
+                        beta_x,
                         0.0,
-                        theta_x[5]
+                        0.0,
+                        0.0
                     ],
 
                     [
-                        theta_y[3],
-                        theta_y[4],
                         0.0,
-                        theta_y[5]
+                        beta_y,
+                        0.0,
+                        0.0
                     ],
 
                     [
@@ -361,7 +329,6 @@ for ax in alphas:
                         beta_r
                     ],
                 ])
-
 
                 X_sim = np.zeros((4, N))
 
@@ -388,7 +355,6 @@ for ax in alphas:
                     )
 
                 vx_hat, vy_hat, vz_hat, r_hat = X_sim
-
 
                 x_sim = np.zeros(N)
                 y_sim = np.zeros(N)
@@ -456,7 +422,6 @@ for ax in alphas:
                     z_sim[k+1] = sk1[2]
                     psi_sim[k+1] = sk1[3]
 
-
                 fit_x = fit_pct(x_real, x_sim)
                 fit_y = fit_pct(y_real, y_sim)
 
@@ -520,7 +485,6 @@ print("\n================================================")
 print("Bd")
 print("================================================")
 print(best_data["Bd"])
-
 
 fig, axs = plt.subplots(2, 2, figsize=(14, 8))
 

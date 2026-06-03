@@ -23,14 +23,14 @@ class RefPublisher(Node):
         L = 1.5
 
         self.points = np.array([
-            [L/2, L/2, 1.2],
-            [-L/2, -L/2, 1.5],
-            [-L/2, -L/2, 1.8],
-            [L/2, L/2, 1.3]
+            [0, 0, 1.8],
+            [-L/2, -L/2, 1.6],
+            [L/2, -L/2, 1.8],
+            [-L/2, L/2, 1.5]
         ])
         self.yaws = np.deg2rad([45, 45, -45, -45])
         self.timer = self.create_timer(self.dt, self.timer_cb)
-        self.get_logger().info("Publishing infinite reference trajectory (10s per pose).")
+        self.get_logger().info("Publishing infinite reference trajectory.")
 
     def timer_cb(self):
         elapsed = time.time() - self.t0

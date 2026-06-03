@@ -81,13 +81,19 @@ class CascadeController(Node):
             [ 0.000000,  0.000000,  0.122009,  0.000000],
             [ 0.000000,  0.000000,  0.000000,  0.122507],
         ])
+    opt=1
+    if opt==1: #trajectory gains
+        KP  = np.diag([5.0, 5.00000, 1.000000, 5.0])
+        KSP = np.diag([0.600000, 0.600000, 0.700000, 0.900000])
+        KD  = np.diag([1.000000, 1.000000, 0.700000, 1.000])
+        KSD = np.diag([1.000000, 1.000000, 0.50000, 0.05000])
 
-    KP  = np.diag([1.0,  1.0,  0.8,  1.0])
-    KSP = np.diag([0.8,  0.8,  0.5,  0.8])
-
-    KD  = np.diag([4.0,  4.0,  1.0,  0.7])
-    KSD = np.diag([0.9, 0.9, 0.35, 0.30])
-
+    else: #position gains
+        KP  = np.diag([3.5,  3.5,  1.0,  1.0])
+        KSP = np.diag([0.8,  0.8,  0.7,  0.5])
+        KD  = np.diag([5.0,  5.0,  0.7,  0.7])
+        KSD = np.diag([0.4, 0.4, 0.5, 0.8])
+    
     U_MAX = np.ones(4)
 
     def __init__(self):
@@ -118,9 +124,6 @@ class CascadeController(Node):
 
         self.pub_cmd = self.create_publisher(Twist, '/safe_bebop/cmd_vel', 10)
 
-        self.pub_dbg = self.create_publisher(
-            Float64MultiArray, '/bebop/controller_debug', 10)
-        self._dbg_counter = 0
 
         self.timer = self.create_timer(self.Ts, self.control_loop)
 
@@ -196,16 +199,6 @@ class CascadeController(Node):
         )
 
         U_body = saturate(Ud, self.U_MAX)
-
-        dbg = Float64MultiArray()
-        dbg.data = (list(eta) + list(self.eta_d) +
-                    list(X_tilde) + list(X_dot_ref) +
-                    list(Ud) + list(U_body))
-        self.pub_dbg.publish(dbg)
-
-        self._dbg_counter += 1
-        if self._dbg_counter >= int(self.RATE_HZ):
-            self._dbg_counter = 0
 
         self._publish_cmd(U_body)
 
