@@ -46,14 +46,14 @@ data = loadmat(mat_file)
 hz = float(data["hz"].squeeze())
 dt = 1.0 / hz
 
-DELAY = 2
+DELAY = 0
 MIN_INPUT = 0.0
 
 u_full = data["u"]
 
 vz_b_full = data["vz_b"].squeeze()
 
-psi_full = data["psi"].squeeze()
+psi_full = np.unwrap(data["psi"].squeeze())
 r_b_full = data["vpsi"].squeeze()
 
 x_real_full = data["x_i"].squeeze()
@@ -221,19 +221,19 @@ for ax in alphas:
 
                 delay = DELAY
 
-                u = u_full[:-delay, :]
+                u = u_full[:-delay, :] if delay > 0 else u_full
 
-                vx = vx_f[delay:]
-                vy = vy_f[delay:]
+                vx = vx_f[delay:] if delay > 0 else vx_f
+                vy = vy_f[delay:] if delay > 0 else vy_f
 
-                vz = vz_f[delay:]
-                r  = r_f[delay:]
+                vz = vz_f[delay:] if delay > 0 else vz_f
+                r  = r_f[delay:] if delay > 0 else r_f
 
-                psi = psi_full[delay:]
+                psi = psi_full[delay:] if delay > 0 else psi_full
 
-                x_real = x_real_full[delay:]
-                y_real = y_real_full[delay:]
-                z_real = z_real_full[delay:]
+                x_real = x_real_full[delay:] if delay > 0 else x_real_full
+                y_real = y_real_full[delay:] if delay > 0 else y_real_full
+                z_real = z_real_full[delay:] if delay > 0 else z_real_full
 
                 ux, uy, uz, upsi = (
                     u[:,0],
@@ -485,6 +485,36 @@ print("\n================================================")
 print("Bd")
 print("================================================")
 print(best_data["Bd"])
+
+# Save optimal X and Y attenuation filters to JSON
+import json
+import os
+json_path = "system_identification_results.json"
+results = {}
+if os.path.exists(json_path):
+    try:
+        with open(json_path, 'r') as f:
+            results = json.load(f)
+    except Exception:
+        pass
+        
+if "attenuation_filters" not in results:
+    results["attenuation_filters"] = {}
+    
+results["attenuation_filters"]["x"] = {
+    "type": "alpha_beta",
+    "alpha": float(best_data["ax"]),
+    "beta": float(best_data["bx"])
+}
+results["attenuation_filters"]["y"] = {
+    "type": "alpha_beta",
+    "alpha": float(best_data["ay"]),
+    "beta": float(best_data["by"])
+}
+
+with open(json_path, 'w') as f:
+    json.dump(results, f, indent=4)
+print(f"\nSuccessfully saved X and Y attenuation filters to {json_path}\n")
 
 fig, axs = plt.subplots(2, 2, figsize=(14, 8))
 
