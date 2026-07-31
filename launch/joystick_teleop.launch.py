@@ -14,7 +14,7 @@ def generate_launch_description():
     # Configuración de tu nodo de control (Mapeo a Twist)
     joy2cmd_node = Node(
         package='neroControl',
-        executable='joy2cmd',
+        executable='joy_to_cmd',
         name='joy2cmd_node',
         output='screen',
     )

@@ -65,13 +65,11 @@ def generate_launch_description():
         #     parameters=[ekf_config]
         # ),
 
-        # Node(
-        #     package='neroControl',
-        #     executable='tf_cam',
-        #     name='tf_cam',
-        #     output='screen'
-        # ),
-
-
+        Node(
+            package='neroControl',
+            executable='tf_camera',
+            name='camera_tf_with_gimbal',
+            output='screen'
+        ),
     ])
  

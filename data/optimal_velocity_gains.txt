@@ -1,0 +1,12 @@
+# Optimal Velocity Loop Gains (Feedback Linearization)
+# Best Cost: 0.003207
+
+kv_x = 3.187700
+kv_y = 14.001798
+kv_z = 0.491455
+kv_yaw = 0.177302
+
+ksv_x = 1.419744
+ksv_y = 0.482469
+ksv_z = 0.132533
+ksv_yaw = 0.133258

@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 
 # Inner-loop velocity controller for regulating body-frame velocities directly.
+# Implements a Feedback Linearization / Inverse Dynamics control law:
+# Ud = f1_inv * [ nu_d_dot + K_sv * tanh( K_v * nu_tilde ) + f2 * nu ]
+# Compatible with NumPy 2.x
+
 import rclpy
 from rclpy.node import Node
 import numpy as np
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float64MultiArray, Bool
 from geometry_msgs.msg import Twist
+from rcl_interfaces.msg import SetParametersResult
 
-F1_DIAG = np.array([0.8417,  0.8354,  3.966,  9.8524])
-F2_DIAG = np.array([0.18227, 0.17095, 4.001,  4.7295])
+# Updated parameters from latest system identification (simulator_node.py)
+F1_DIAG = np.array([0.823345, 0.641387, 3.808688, 4.260513])
+F2_DIAG = np.array([1.089067, 0.566075, 3.741447, 4.080277])
 
 VX_MAX   = 4.5
 VY_MAX   = 4.5
@@ -17,93 +23,63 @@ VZ_MAX   = 1.0
 DYAW_MAX = np.deg2rad(100.0)
 
 REF_TIMEOUT = 0.5
-CONTROL_HZ  = 30.0
+CONTROL_HZ  = 15.0
 
-ACCEL_FF = 0.05
-FF_W_XY  = 1.0
-FF_W_Z   = 1.1
-FF_W_YAW = 1.0
-REF_TAU  = 0.18
-
-TAU_DYAW_FILT = 0.30
-
-REF_TAU_YAW   = 0.25
-
-PID_PARAMS = {
-    'x':   (5.0,  0.04, 0.35, 0.50, 0.08),
-    'y':   (5.0,  0.04, 0.35, 0.50, 0.08),
-    'z':   (1.8,  0.06, 0.20, 0.40, 0.12),
-    'yaw': (0.35, 0.0001, 0.15, 0.15, 0.05), # Kd reducido y tau_d aumentado
-}
-
-class PIDChannel:
-    def __init__(self, kp, ki, kd, e_int_max, tau_d=0.08):
-        self.kp, self.ki, self.kd = kp, ki, kd
-        self.e_int_max = e_int_max
-        self.tau_d     = tau_d
-        self._e_int     = 0.0
-        self._meas_prev = 0.0
-        self._d_filt    = 0.0
-
-    def reset(self):
-        self._e_int = self._meas_prev = self._d_filt = 0.0
-
-    def update(self, e, measurement, dt):
-        if dt <= 0.0:
-            return 0.0
-        self._e_int = np.clip(self._e_int + e * dt,
-                              -self.e_int_max, self.e_int_max)
-        d_raw = -(measurement - self._meas_prev) / dt
-        alpha = dt / (self.tau_d + dt)
-        self._d_filt = (1.0 - alpha) * self._d_filt + alpha * d_raw
-        self._meas_prev = measurement
-        return self.kp * e + self.ki * self._e_int + self.kd * self._d_filt
+# Reference filter time constants for x, y, z, yaw (seconds)
+REF_TAU = np.array([0.18, 0.18, 0.10, 0.25])
 
 
 class BebopVelocityController(Node):
     def __init__(self):
         super().__init__('bebop_velocity_controller')
 
+        # Current velocity measurements in body frame
         self.vx_b = self.vy_b = self.vz_b = self.dyaw_b = 0.0
-        self.dyaw_b_filt = 0.0
 
+        # Reference velocities from supervisor
         self.ref_vx_b = self.ref_vy_b = self.ref_vz_b = self.ref_dyaw_b = 0.0
 
-        self.ref_vx_b_filt = self.ref_vy_b_filt = 0.0
-        self.ref_vx_b_prev = self.ref_vy_b_prev = 0.0
-
-        self.ref_dyaw_b_filt = 0.0
-        self.ref_dyaw_b_prev = 0.0
+        # Reference filters state
+        self.ref_filt = np.zeros(4)
+        self.ref_prev = np.zeros(4)
 
         self.is_flying     = False
         self.odom_received = False
         self.last_ref_time = None
 
-        self.vx_ss, self.vy_ss, self.vz_ss, self.dyaw_ss = F1_DIAG / F2_DIAG
+        # Declare parameters for live tuning
+        self.declare_parameter('kv_x', 3.187700)
+        self.declare_parameter('kv_y', 14.001798)
+        self.declare_parameter('kv_z', 0.491455)
+        self.declare_parameter('kv_yaw', 0.177302)
 
-        self.pid = {k: PIDChannel(*v) for k, v in PID_PARAMS.items()}
+        self.declare_parameter('ksv_x', 1.419744)
+        self.declare_parameter('ksv_y', 0.482469)
+        self.declare_parameter('ksv_z', 0.132533)
+        self.declare_parameter('ksv_yaw', 0.133258)
+
+        self.add_on_set_parameters_callback(self._on_param_change)
 
         self.sub_odom   = self.create_subscription(
-            Odometry, '/odometry/filtered', self.odom_callback, 10)
+            Odometry, '/bebop/fullodom', self.odom_callback, 10)
         self.sub_ref    = self.create_subscription(
             Float64MultiArray, '/bebop/ref_vec', self.ref_callback, 10)
         self.sub_flying = self.create_subscription(
             Bool, '/bebop/is_flying', self.is_flying_callback, 10)
-        self.pub_cmd    = self.create_publisher(Twist, '/bebop/cmd_vel', 10)
+        self.pub_cmd    = self.create_publisher(Twist, '/safe_bebop/cmd_vel', 10)
 
         self.dt    = 1.0 / CONTROL_HZ
         self.timer = self.create_timer(self.dt, self.control_loop)
-        self.get_logger().info('BebopVelocityController started')
+        self.get_logger().info('BebopVelocityController (Feedback Linearization) started')
+
+    def _on_param_change(self, params):
+        return SetParametersResult(successful=True)
 
     def odom_callback(self, msg):
         self.vx_b   = msg.twist.twist.linear.x
         self.vy_b   = msg.twist.twist.linear.y
         self.vz_b   = msg.twist.twist.linear.z
         self.dyaw_b = msg.twist.twist.angular.z
-
-        alpha_yaw = self.dt / (TAU_DYAW_FILT + self.dt)
-        self.dyaw_b_filt += alpha_yaw * (self.dyaw_b - self.dyaw_b_filt)
-
         self.odom_received = True
 
     def ref_callback(self, msg):
@@ -117,13 +93,8 @@ class BebopVelocityController(Node):
 
     def is_flying_callback(self, msg):
         if not msg.data and self.is_flying:
-            for p in self.pid.values():
-                p.reset()
-            self.ref_vx_b_filt   = self.ref_vy_b_filt   = 0.0
-            self.ref_vx_b_prev   = self.ref_vy_b_prev   = 0.0
-            self.ref_dyaw_b_filt = 0.0
-            self.ref_dyaw_b_prev = 0.0
-            self.dyaw_b_filt     = 0.0
+            self.ref_filt = np.zeros(4)
+            self.ref_prev = np.zeros(4)
         self.is_flying = msg.data
 
     def control_loop(self):
@@ -131,56 +102,61 @@ class BebopVelocityController(Node):
             self.pub_cmd.publish(Twist())
             return
 
+        # Reference timeout check
         if self.last_ref_time is not None:
             elapsed = (self.get_clock().now() - self.last_ref_time).nanoseconds * 1e-9
             if elapsed > REF_TIMEOUT:
                 self.ref_vx_b = self.ref_vy_b = self.ref_vz_b = self.ref_dyaw_b = 0.0
 
-        alpha_ref = self.dt / (REF_TAU + self.dt)
-        self.ref_vx_b_filt += alpha_ref * (self.ref_vx_b - self.ref_vx_b_filt)
-        self.ref_vy_b_filt += alpha_ref * (self.ref_vy_b - self.ref_vy_b_filt)
+        # Assemble raw reference vector
+        nu_d_raw = np.array([self.ref_vx_b, self.ref_vy_b, self.ref_vz_b, self.ref_dyaw_b])
 
-        d_ref_vx_b = (self.ref_vx_b_filt - self.ref_vx_b_prev) / self.dt
-        d_ref_vy_b = (self.ref_vy_b_filt - self.ref_vy_b_prev) / self.dt
-        self.ref_vx_b_prev = self.ref_vx_b_filt
-        self.ref_vy_b_prev = self.ref_vy_b_filt
+        # No reference filtering inside the controller (filters should be on the reference generator)
+        self.ref_filt = nu_d_raw.copy()
 
-        alpha_yaw_ref = self.dt / (REF_TAU_YAW + self.dt)
-        self.ref_dyaw_b_filt += alpha_yaw_ref * (self.ref_dyaw_b - self.ref_dyaw_b_filt)
+        # Compute numerical derivative nu_d_dot
+        nu_d_dot = (self.ref_filt - self.ref_prev) / self.dt
+        self.ref_prev = self.ref_filt.copy()
 
-        d_ref_dyaw_b = (self.ref_dyaw_b_filt - self.ref_dyaw_b_prev) / self.dt
-        self.ref_dyaw_b_prev = self.ref_dyaw_b_filt
+        # Assemble current velocity vector
+        nu = np.array([self.vx_b, self.vy_b, self.vz_b, self.dyaw_b])
 
-        ex_b   = self.ref_vx_b   - self.vx_b
-        ey_b   = self.ref_vy_b   - self.vy_b
-        ez_b   = self.ref_vz_b   - self.vz_b
-        eyaw_b = self.ref_dyaw_b_filt - self.dyaw_b_filt
+        # Compute tracking error nu_tilde = nu_d - nu
+        nu_tilde = self.ref_filt - nu
+        # Wrap yaw error to [-pi, pi]
+        nu_tilde[3] = (nu_tilde[3] + np.pi) % (2.0 * np.pi) - np.pi
 
-        decay = 0.95
-        if abs(self.ref_vx_b)   < 0.05:            self.pid['x']._e_int   *= decay
-        if abs(self.ref_vy_b)   < 0.05:            self.pid['y']._e_int   *= decay
-        if abs(self.ref_dyaw_b) < np.deg2rad(2.0): self.pid['yaw']._e_int *= decay
+        # Load gains dynamically
+        K_V_DIAG = np.array([
+            self.get_parameter('kv_x').value,
+            self.get_parameter('kv_y').value,
+            self.get_parameter('kv_z').value,
+            self.get_parameter('kv_yaw').value
+        ])
+        K_SV_DIAG = np.array([
+            self.get_parameter('ksv_x').value,
+            self.get_parameter('ksv_y').value,
+            self.get_parameter('ksv_z').value,
+            self.get_parameter('ksv_yaw').value
+        ])
 
-        ux = (FF_W_XY * self.ref_vx_b_filt / self.vx_ss
-              + ACCEL_FF * d_ref_vx_b
-              + self.pid['x'].update(ex_b, self.vx_b, self.dt))
+        # Inverse-dynamics control law
+        # alpha_control = nu_d_dot + K_sv * tanh( K_v * nu_tilde )
+        alpha_control = nu_d_dot + K_SV_DIAG * np.tanh(K_V_DIAG * nu_tilde)
 
-        uy = (FF_W_XY * self.ref_vy_b_filt / self.vy_ss
-              + ACCEL_FF * d_ref_vy_b
-              + self.pid['y'].update(ey_b, self.vy_b, self.dt))
+        # U_d = f1_inv * ( alpha_control + f2 * nu )
+        f1_inv = 1.0 / F1_DIAG
+        Ud = f1_inv * (alpha_control + F2_DIAG * nu)
 
-        uz = (FF_W_Z * self.ref_vz_b / self.vz_ss
-              + self.pid['z'].update(ez_b, self.vz_b, self.dt))
+        # Apply actuator saturation limits
+        U_body = np.clip(Ud, -1.0, 1.0)
 
-        uyaw = (FF_W_YAW * self.ref_dyaw_b_filt / self.dyaw_ss
-                + ACCEL_FF * d_ref_dyaw_b
-                + self.pid['yaw'].update(eyaw_b, self.dyaw_b_filt, self.dt))
-
+        # Publish command
         cmd = Twist()
-        cmd.linear.x  = float(np.clip(ux,   -1.0, 1.0))
-        cmd.linear.y  = float(np.clip(uy,   -1.0, 1.0))
-        cmd.linear.z  = float(np.clip(uz,   -1.0, 1.0))
-        cmd.angular.z = float(np.clip(uyaw, -1.0, 1.0))
+        cmd.linear.x  = float(U_body[0])
+        cmd.linear.y  = float(U_body[1])
+        cmd.linear.z  = float(U_body[2])
+        cmd.angular.z = float(U_body[3])
         self.pub_cmd.publish(cmd)
 
 

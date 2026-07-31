@@ -75,13 +75,13 @@ install(PROGRAMS
   nero_control/bebop_control_gui.py
   nero_control/position_ref.py
   nero_control/extended_controller.py
-  nero_control/speed_controller.py
   nero_control/sensor_fusion.py
   nero_control/initial_frame.py
   nero_control/realtime_graphical.py
+  nero_control/body_realtime_velocity.py
+  nero_control/velocity_gains_optimizer.py
   nero_control/trajectory_ref.py
   nero_control/multi_trajectory_ref.py
-  nero_control/pbvs_controller.py
   nero_control/ibvs_controller.py
   nero_control/article_plotter.py
   nero_control/trajectory_graphical_3d.py
@@ -89,7 +89,6 @@ install(PROGRAMS
   nero_control/pioneer_joy.py
   nero_control/velocity_test.py
   nero_control/land_cmd.py
-  nero_control/smc_controller.py
   nero_control/body_velocities_plotter.py
   nero_control/model_logger.py
   DESTINATION lib/${PROJECT_NAME}
