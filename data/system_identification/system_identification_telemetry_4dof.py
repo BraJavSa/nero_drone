@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-System identification for Bebop 2 drone (RAW version without filtering - 4-DOF Joint Optimization with Shared Delay):
-- Optimizes f1, f2 for all 4 channels (X, Y, Z, Yaw) and a SINGLE shared input delay (9 parameters total).
-- Uses normalized joint position-velocity loss with amplitude matching across all channels.
-"""
-
 import math
 import os
 import json
@@ -53,7 +47,6 @@ def apply_article_style():
     })
 
 def main():
-    # ─── 0. Load data ────────────────────────────────────────────────────────────
     mat_file = "manual_log_20260701_170333.mat"
     if not os.path.exists(mat_file):
         print(f"[ERROR] Telemetry file '{mat_file}' not found.")
@@ -74,14 +67,12 @@ def main():
     N = len(vx_b_full)
     print(f"Loaded {N} samples  |  dt = {dt*1e3:.2f} ms  |  {hz:.1f} Hz")
 
-    # ─── 1. Derive Z and Yaw velocities (No Filtering) ─────────────────────────
     vz_b_full = np.zeros(N)
     omega_full = np.zeros(N)
     for k in range(1, N):
         vz_b_full[k]  = (z_full[k] - z_full[k-1]) / dt
         omega_full[k] = (psi_full[k] - psi_full[k-1]) / dt
 
-    # Slice transient/boundary samples
     TRIM = 10
     u_t  = u_full[TRIM:, :]
     nu_real = np.column_stack([
@@ -97,7 +88,6 @@ def main():
     psi_real = psi_full[TRIM:]
     M_samples = u_t.shape[0]
 
-    # ─── 2. Setup 9-Parameter Joint Optimization ──────────────────────────────
     print("\nOptimizing X, Y, Z, and Yaw channels jointly with a SHARED delay...")
     x0, y0, z0, psi0 = x_real[0], y_real[0], z_real[0], psi_real[0]
     
@@ -111,20 +101,16 @@ def main():
     std_z = np.std(z_real) if np.std(z_real) > 0 else 1.0
     std_psi = np.std(psi_real) if np.std(psi_real) > 0 else 1.0
 
-    # Bounds for the 9 parameters:
-    # 0: f1_x, 1: f2_x, 2: f1_y, 3: f2_y
-    # 4: f1_z, 5: f2_z, 6: f1_yaw, 7: f2_yaw
-    # 8: delay_val (shared delay)
     bounds = [
-        (0.1, 1.2),  # f1_x
-        (0.1, 1.2),  # f2_x
-        (0.1, 1.2),  # f1_y
-        (0.1, 1.2),  # f2_y
-        (0.1, 15.0), # f1_z
-        (0.1, 15.0), # f2_z
-        (0.1, 15.0), # f1_yaw
-        (0.1, 15.0), # f2_yaw
-        (0.0, 6.0)   # delay_val
+        (0.1, 1.2),
+        (0.1, 1.2),
+        (0.1, 1.2),
+        (0.1, 1.2),
+        (0.1, 15.0),
+        (0.1, 15.0),
+        (0.1, 15.0),
+        (0.1, 15.0),
+        (0.0, 6.0)
     ]
 
     def joint_loss(params):
@@ -133,7 +119,6 @@ def main():
         
         d = int(round(delay_val))
         
-        # Apply shared delay to all command inputs
         u_x = np.zeros(M_samples)
         u_y = np.zeros(M_samples)
         u_z = np.zeros(M_samples)
@@ -150,7 +135,6 @@ def main():
             u_z[d:] = u_t[:-d, 2]
             u_yaw[d:] = u_t[:-d, 3]
             
-        # Simulate velocities
         v_sim_x = np.zeros(M_samples)
         v_sim_x[0] = nu_real[0, 0]
         v_sim_y = np.zeros(M_samples)
@@ -166,7 +150,6 @@ def main():
             v_sim_z[k+1] = v_sim_z[k] + dt * (f1_z * u_z[k] - f2_z * v_sim_z[k])
             v_sim_yaw[k+1] = v_sim_yaw[k] + dt * (f1_yaw * u_yaw[k] - f2_yaw * v_sim_yaw[k])
             
-        # Integrate positions
         pos_sim = np.zeros((M_samples, 4))
         pos_sim[0] = [x0, y0, z0, psi0]
         for k in range(M_samples - 1):
@@ -176,7 +159,6 @@ def main():
             pos_sim[k+1, 2] = pos_sim[k, 2] + 0.5 * (v_sim_z[k] + v_sim_z[k+1]) * dt
             pos_sim[k+1, 3] = pos_sim[k, 3] + 0.5 * (v_sim_yaw[k] + v_sim_yaw[k+1]) * dt
             
-        # Calculate RMSEs
         rmse_vx = np.sqrt(np.mean((nu_real[:, 0] - v_sim_x)**2))
         rmse_vy = np.sqrt(np.mean((nu_real[:, 1] - v_sim_y)**2))
         rmse_vz = np.sqrt(np.mean((nu_real[:, 2] - v_sim_z)**2))
@@ -187,7 +169,6 @@ def main():
         rmse_z = np.sqrt(np.mean((z_real - pos_sim[:, 2])**2))
         rmse_psi = np.sqrt(np.mean((psi_real - pos_sim[:, 3])**2))
         
-        # Standard deviation (amplitude) matching
         std_vx_sim = np.std(v_sim_x)
         std_vy_sim = np.std(v_sim_y)
         std_vz_sim = np.std(v_sim_z)
@@ -198,7 +179,6 @@ def main():
         amp_penalty_z = abs(std_vz_sim - std_vz_real)
         amp_penalty_yaw = abs(std_vyaw_sim - std_vyaw_real)
         
-        # Combined losses
         loss_x = (rmse_x / std_x) + (rmse_vx / std_vx_real) + 3.0 * (amp_penalty_x / std_vx_real)
         loss_y = (rmse_y / std_y) + (rmse_vy / std_vy_real) + 3.0 * (amp_penalty_y / std_vy_real)
         loss_z = (rmse_z / std_z) + (rmse_vz / std_vz_real) + 3.0 * (amp_penalty_z / std_vz_real)
@@ -206,7 +186,6 @@ def main():
         
         return loss_x + loss_y + loss_z + loss_yaw
 
-    # Run optimization
     res = differential_evolution(joint_loss, bounds, maxiter=100, popsize=12, disp=True)
     res_polished = minimize(joint_loss, res.x, method='L-BFGS-B', bounds=bounds)
     
@@ -225,7 +204,6 @@ def main():
     print(f"Yaw optimal: f1_yaw = {f1_yaw:.6f}, f2_yaw = {f2_yaw:.6f}")
     print("="*50)
 
-    # ─── 3. Save parameters to JSON ───────────────────────────────────────────
     results_json = {
         "identified_parameters": {
             "x": {
@@ -253,12 +231,11 @@ def main():
         }
     }
 
-    json_path = "system_identification_results_raw_4dof.json"
+    json_path = "system_identification_parameters_telemetry_4dof.json"
     with open(json_path, 'w') as f:
         json.dump(results_json, f, indent=4)
     print(f"Saved all parameters to {json_path}")
 
-    # ─── 4. Joint forward simulation for plotting ──────────────────────────────
     u_delayed = u_t.copy()
     if d > 0:
         u_delayed[d:, 0] = u_t[:-d, 0]
@@ -287,7 +264,6 @@ def main():
 
     t = np.arange(M_samples) * dt
 
-    # Plot velocities
     apply_article_style()
     
     COLOR_MEASURED = "#000000"
@@ -326,9 +302,8 @@ def main():
             
     fig1.patch.set_facecolor("white")
     plt.tight_layout()
-    fig1.savefig("optimized_velocities_raw_4dof.png", dpi=300, bbox_inches="tight")
+    fig1.savefig("validation_velocities_telemetry_4dof.png", dpi=300, bbox_inches="tight")
 
-    # Plot positions
     fig2, axes2 = plt.subplots(4, 1, figsize=(7.5, 9.5), sharex=True)
     pos_names = [
         r"$\eta_x$ [m]",
@@ -362,9 +337,9 @@ def main():
             
     fig2.patch.set_facecolor("white")
     plt.tight_layout()
-    fig2.savefig("optimized_positions_raw_4dof.png", dpi=300, bbox_inches="tight")
+    fig2.savefig("validation_positions_telemetry_4dof.png", dpi=300, bbox_inches="tight")
 
-    print("Saved plots: optimized_velocities_raw_4dof.png and optimized_positions_raw_4dof.png")
+    print("Saved plots: validation_velocities_telemetry_4dof.png and validation_positions_telemetry_4dof.png")
     plt.show()
 
 if __name__ == "__main__":

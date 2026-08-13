@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Validation script for Bebop 2 drone system identification:
-- Loads the identified parameters from system_identification_results_raw_4dof.json.
-- Loads the telemetry log manual_log_20260701_170333.mat.
-- Runs the forward simulation (velocities) and forward integration (positions).
-- Generates validation_velocities.pdf and validation_positions.pdf using the paper aesthetic.
-- Runs headless (non-blocking) using matplotlib 'Agg' backend.
-"""
-
 import sys
 import math
 import os
@@ -59,8 +50,7 @@ def apply_article_style():
     })
 
 def main():
-    # ─── Load Identified Parameters ──────────────────────────────────────────
-    json_file = sys.argv[1] if len(sys.argv) > 1 else "system_identification_results_raw_4dof.json"
+    json_file = sys.argv[1] if len(sys.argv) > 1 else "system_identification_parameters_telemetry_4dof.json"
     if not os.path.exists(json_file):
         print(f"[ERROR] Identified parameters file '{json_file}' not found.")
         return
@@ -77,13 +67,11 @@ def main():
     f1_yaw = params["identified_parameters"]["yaw"]["f1"]
     f2_yaw = params["identified_parameters"]["yaw"]["f2"]
 
-    # Load independent delays
     d_x = params["delays"]["x"]
     d_y = params["delays"]["y"]
     d_z = params["delays"]["z"]
     d_yaw = params["delays"]["yaw"]
 
-    # ─── Load Telemetry Data ──────────────────────────────────────────────────
     mat_file = "manual_log_20260701_170333.mat"
     if not os.path.exists(mat_file):
         print(f"[ERROR] Telemetry file '{mat_file}' not found.")
@@ -104,7 +92,6 @@ def main():
     N = len(vx_b_full)
     print(f"Loaded {N} samples from '{mat_file}'  |  dt = {dt*1e3:.2f} ms  |  {hz:.1f} Hz")
 
-    # Derive velocities from positions for comparison (if derived model is loaded)
     vx_b_full_derived = np.zeros(N)
     vy_b_full_derived = np.zeros(N)
     for k in range(1, N):
@@ -130,7 +117,6 @@ def main():
         vz_b_full[k]  = (z_full[k] - z_full[k-1]) / dt
         omega_full[k] = (psi_full[k] - psi_full[k-1]) / dt
 
-    # Slice transient/boundary samples
     TRIM = 10
     u_t  = u_full[TRIM:, :]
     nu_real = np.column_stack([
@@ -146,10 +132,8 @@ def main():
     psi_real = psi_full[TRIM:]
     M_samples = u_t.shape[0]
 
-    # Initial conditions
     x0, y0, z0, psi0 = x_real[0], y_real[0], z_real[0], psi_real[0]
 
-    # ─── Forward Simulation (RK4) ─────────────────────────────────────────────
     u_delayed = u_t.copy()
     if d_x > 0:
         u_delayed[d_x:, 0] = u_t[:-d_x, 0]
@@ -160,21 +144,17 @@ def main():
     if d_yaw > 0:
         u_delayed[d_yaw:, 3] = u_t[:-d_yaw, 3]
 
-    # Combine velocities and positions in a single 8-state vector for RK4 integration:
-    # State format: [vx, vy, vz, omega, x, y, z, psi]
     X_state = np.zeros((M_samples, 8))
     X_state[0] = [nu_real[0, 0], nu_real[0, 1], nu_real[0, 2], nu_real[0, 3], x0, y0, z0, psi0]
 
     def dynamics(state, u_val):
         vx, vy, vz, om, x, y, z, psi = state
         
-        # Velocity derivatives (body frame)
         dvx = f1_x * u_val[0] - f2_x * vx
         dvy = f1_y * u_val[1] - f2_y * vy
         dvz = f1_z * u_val[2] - f2_z * vz
         dom = f1_yaw * u_val[3] - f2_yaw * om
         
-        # Position derivatives (inertial frame)
         dx = vx * math.cos(psi) - vy * math.sin(psi)
         dy = vx * math.sin(psi) + vy * math.cos(psi)
         dz = vz
@@ -201,15 +181,13 @@ def main():
 
     t = np.arange(M_samples) * dt
 
-    # ─── Plot and Save to PDFs ────────────────────────────────────────────────
     apply_article_style()
     
     COLOR_MEASURED = "#000000"
     COLOR_MODEL    = "#1a56a0"
     COLOR_FILL     = "#d0e1f9"
 
-    # 1. Velocities PDF
-    pdf_vel_path = "validation_velocities.pdf"
+    pdf_vel_path = "validation_velocities_report_4dof.pdf"
     fig1, axes1 = plt.subplots(4, 1, figsize=(7.5, 9.5), sharex=True)
     vel_names = [
         r"$\nu_x$ [m/s]",
@@ -248,8 +226,7 @@ def main():
     plt.close(fig1)
     print(f"Generated PDF: {pdf_vel_path}")
 
-    # 2. Positions PDF
-    pdf_pos_path = "validation_positions.pdf"
+    pdf_pos_path = "validation_positions_report_4dof.pdf"
     fig2, axes2 = plt.subplots(4, 1, figsize=(7.5, 9.5), sharex=True)
     pos_names = [
         r"$\eta_x$ [m]",
@@ -289,7 +266,6 @@ def main():
     plt.close(fig2)
     print(f"Generated PDF: {pdf_pos_path}")
 
-    # ─── Calculate Metrics (RMSE, MAE & R2) ───────────────────────────────────
     metrics = {
         "velocities": {},
         "positions": {}
@@ -302,7 +278,6 @@ def main():
         rmse = float(np.sqrt(np.mean((real_val - sim_val)**2)))
         mae = float(np.mean(np.abs(real_val - sim_val)))
         
-        # Coefficient of determination R^2
         mean_real = np.mean(real_val)
         ss_res = np.sum((real_val - sim_val)**2)
         ss_tot = np.sum((real_val - mean_real)**2)
@@ -322,7 +297,6 @@ def main():
         rmse = float(np.sqrt(np.mean((real_val - sim_val)**2)))
         mae = float(np.mean(np.abs(real_val - sim_val)))
         
-        # Coefficient of determination R^2
         mean_real = np.mean(real_val)
         ss_res = np.sum((real_val - sim_val)**2)
         ss_tot = np.sum((real_val - mean_real)**2)
@@ -334,22 +308,12 @@ def main():
             "r2": r2
         }
 
-    # Save validation metrics to JSON
-    # Name the metrics file based on the parameters file name
-    base_name = os.path.splitext(os.path.basename(json_file))[0]
-    metrics_json_path = f"{base_name}_validation_metrics.json"
-    
+    metrics_json_path = "system_identification_validation_metrics_4dof.json"
     with open(metrics_json_path, 'w') as f:
         json.dump(metrics, f, indent=4)
         
     print(f"Generated validation metrics JSON: {metrics_json_path}")
     
-    # Also save to a static filename 'validation_metrics.json' for easier pipeline/automated usage
-    with open("validation_metrics.json", 'w') as f:
-        json.dump(metrics, f, indent=4)
-    print("Generated generic validation metrics JSON: validation_metrics.json")
-    
-    # Print metrics to terminal
     print("\n" + "="*65)
     print("VALIDATION METRICS (RMSE, MAE & R^2)")
     print("="*65)
