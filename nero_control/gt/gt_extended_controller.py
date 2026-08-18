@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-
-# Main cascade controller implementing position and velocity loops for the drone.
+"""
+Ground Truth Cascade Controller for Bebop drone.
+Adapted to use Ground Truth Odometry (/bebop/gt_fullodom) from OptiTrack VRPN Mocap.
+"""
 
 import numpy as np
 import rclpy
@@ -65,10 +67,11 @@ def saturate(v: np.ndarray, vmax: np.ndarray) -> np.ndarray:
     return np.clip(v, -vmax, vmax)
 
 
-class CascadeController(Node):
+class GtCascadeController(Node):
 
     RATE_HZ: float = 15.0
 
+    # Identified OptiTrack parameters (system_identification_parameters_optitrack_4dof.json)
     f1 = np.array([
             [0.921527, 0.000000, 0.000000, 0.000000],
             [0.000000, 1.053286, 0.000000, 0.000000],
@@ -81,13 +84,13 @@ class CascadeController(Node):
             [0.000000, 0.000000, 1.975836, 0.000000],
             [0.000000, 0.000000, 0.000000, 6.101834],
         ])
-    opt=1
-    if opt==1: 
+    opt = 1
+    if opt == 1:  # trajectory gains (extra strong Y tracking, ultra-smooth U)
         KP  = np.diag([2.000000, 3.500000, 2.200000, 2.000000])
         KSP = np.diag([0.500000, 0.700000, 0.500000, 0.400000])
         KD  = np.diag([0.500000, 0.600000, 0.500000, 0.400000])
         KSD = np.diag([0.150000, 0.220000, 0.150000, 0.150000])
-    else: 
+    else:  # position gains (fast Z & Yaw, smooth XY)
         KP  = np.diag([2.500000, 2.500000, 3.500000, 4.500000])
         KSP = np.diag([0.800000, 0.800000, 0.800000, 0.800000])
         KD  = np.diag([4.000000, 4.000000, 2.500000, 2.000000])
@@ -96,7 +99,7 @@ class CascadeController(Node):
     U_MAX = np.ones(4)
 
     def __init__(self):
-        super().__init__('cascade_controller')
+        super().__init__('gt_cascade_controller')
 
         self.Ts = 1.0 / self.RATE_HZ
 
@@ -115,8 +118,9 @@ class CascadeController(Node):
         self.odom_received = False
         self.ref_received  = False
 
+        # Subscribes to Ground Truth Odometry
         self.sub_odom = self.create_subscription(
-            Odometry, '/bebop/fullodom', self.odom_callback, 10)
+            Odometry, '/bebop/gt_fullodom', self.odom_callback, 10)
         self.sub_ref  = self.create_subscription(
             Float64MultiArray, '/bebop/ref_vec', self.ref_callback, 10)
         self.sub_fly  = self.create_subscription(
@@ -125,6 +129,7 @@ class CascadeController(Node):
         self.pub_cmd = self.create_publisher(Twist, '/safe_bebop/cmd_vel', 10)
 
         self.timer = self.create_timer(self.Ts, self.control_loop)
+        self.get_logger().info("GT Cascade Controller initialized. Subscribed to /bebop/gt_fullodom")
 
     def odom_callback(self, msg: Odometry):
         p = msg.pose.pose.position
@@ -222,7 +227,7 @@ class CascadeController(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = CascadeController()
+    node = GtCascadeController()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -56,23 +56,23 @@ Visualization Manager:
       Filter (whitelist): ""
       Frame Timeout: 15
       Frames:
-        All Enabled: false
+        All Enabled: true
         absolute_cam_link:
-          Value: false
+          Value: true
         base_link:
-          Value: false
+          Value: true
         base_link_ekf:
           Value: true
         camera_gimbal:
-          Value: false
+          Value: true
         camera_link:
-          Value: false
+          Value: true
         initial_frame:
           Value: true
         map:
-          Value: false
+          Value: true
         odom:
-          Value: false
+          Value: true
         propeller_back_left:
           Value: false
         propeller_back_right:

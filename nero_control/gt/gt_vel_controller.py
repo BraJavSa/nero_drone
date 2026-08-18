@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-
-# Inner-loop velocity controller for regulating body-frame velocities directly.
-# Implements a Feedback Linearization / Inverse Dynamics control law:
-# Ud = f1_inv * [ nu_d_dot + K_sv * tanh( K_v * nu_tilde ) + f2 * nu ]
-# Compatible with NumPy 2.x
+"""
+Ground Truth Velocity Controller for Bebop drone.
+Subscribes to /bebop/gt_fullodom instead of /bebop/fullodom.
+"""
 
 import rclpy
 from rclpy.node import Node
@@ -13,7 +12,7 @@ from std_msgs.msg import Float64MultiArray, Bool
 from geometry_msgs.msg import Twist
 from rcl_interfaces.msg import SetParametersResult
 
-# Updated parameters from OptiTrack system identification (system_identification_parameters_optitrack_4dof.json)
+# Identified OptiTrack parameters (system_identification_parameters_optitrack_4dof.json)
 F1_DIAG = np.array([0.921527, 1.053286, 4.173221, 8.772786])
 F2_DIAG = np.array([0.247044, 0.395160, 1.975836, 6.101834])
 
@@ -25,21 +24,14 @@ DYAW_MAX = np.deg2rad(100.0)
 REF_TIMEOUT = 0.5
 CONTROL_HZ  = 15.0
 
-# Reference filter time constants for x, y, z, yaw (seconds)
-REF_TAU = np.array([0.18, 0.18, 0.10, 0.25])
 
-
-class BebopVelocityController(Node):
+class GtBebopVelocityController(Node):
     def __init__(self):
-        super().__init__('bebop_velocity_controller')
+        super().__init__('gt_bebop_velocity_controller')
 
-        # Current velocity measurements in body frame
         self.vx_b = self.vy_b = self.vz_b = self.dyaw_b = 0.0
-
-        # Reference velocities from supervisor
         self.ref_vx_b = self.ref_vy_b = self.ref_vz_b = self.ref_dyaw_b = 0.0
 
-        # Reference filters state
         self.ref_filt = np.zeros(4)
         self.ref_prev = np.zeros(4)
 
@@ -47,7 +39,6 @@ class BebopVelocityController(Node):
         self.odom_received = False
         self.last_ref_time = None
 
-        # Declare parameters for live tuning
         self.declare_parameter('kv_x', 3.187700)
         self.declare_parameter('kv_y', 14.001798)
         self.declare_parameter('kv_z', 0.491455)
@@ -61,7 +52,7 @@ class BebopVelocityController(Node):
         self.add_on_set_parameters_callback(self._on_param_change)
 
         self.sub_odom   = self.create_subscription(
-            Odometry, '/bebop/fullodom', self.odom_callback, 10)
+            Odometry, '/bebop/gt_fullodom', self.odom_callback, 10)
         self.sub_ref    = self.create_subscription(
             Float64MultiArray, '/bebop/ref_vec', self.ref_callback, 10)
         self.sub_flying = self.create_subscription(
@@ -70,7 +61,7 @@ class BebopVelocityController(Node):
 
         self.dt    = 1.0 / CONTROL_HZ
         self.timer = self.create_timer(self.dt, self.control_loop)
-        self.get_logger().info('BebopVelocityController (Feedback Linearization) started')
+        self.get_logger().info('GtBebopVelocityController started on /bebop/gt_fullodom')
 
     def _on_param_change(self, params):
         return SetParametersResult(successful=True)
@@ -102,31 +93,21 @@ class BebopVelocityController(Node):
             self.pub_cmd.publish(Twist())
             return
 
-        # Reference timeout check
         if self.last_ref_time is not None:
             elapsed = (self.get_clock().now() - self.last_ref_time).nanoseconds * 1e-9
             if elapsed > REF_TIMEOUT:
                 self.ref_vx_b = self.ref_vy_b = self.ref_vz_b = self.ref_dyaw_b = 0.0
 
-        # Assemble raw reference vector
         nu_d_raw = np.array([self.ref_vx_b, self.ref_vy_b, self.ref_vz_b, self.ref_dyaw_b])
-
-        # No reference filtering inside the controller (filters should be on the reference generator)
         self.ref_filt = nu_d_raw.copy()
 
-        # Compute numerical derivative nu_d_dot
         nu_d_dot = (self.ref_filt - self.ref_prev) / self.dt
         self.ref_prev = self.ref_filt.copy()
 
-        # Assemble current velocity vector
         nu = np.array([self.vx_b, self.vy_b, self.vz_b, self.dyaw_b])
-
-        # Compute tracking error nu_tilde = nu_d - nu
         nu_tilde = self.ref_filt - nu
-        # Wrap yaw error to [-pi, pi]
         nu_tilde[3] = (nu_tilde[3] + np.pi) % (2.0 * np.pi) - np.pi
 
-        # Load gains dynamically
         K_V_DIAG = np.array([
             self.get_parameter('kv_x').value,
             self.get_parameter('kv_y').value,
@@ -140,18 +121,12 @@ class BebopVelocityController(Node):
             self.get_parameter('ksv_yaw').value
         ])
 
-        # Inverse-dynamics control law
-        # alpha_control = nu_d_dot + K_sv * tanh( K_v * nu_tilde )
         alpha_control = nu_d_dot + K_SV_DIAG * np.tanh(K_V_DIAG * nu_tilde)
-
-        # U_d = f1_inv * ( alpha_control + f2 * nu )
         f1_inv = 1.0 / F1_DIAG
         Ud = f1_inv * (alpha_control + F2_DIAG * nu)
 
-        # Apply actuator saturation limits
         U_body = np.clip(Ud, -1.0, 1.0)
 
-        # Publish command
         cmd = Twist()
         cmd.linear.x  = float(U_body[0])
         cmd.linear.y  = float(U_body[1])
@@ -162,7 +137,7 @@ class BebopVelocityController(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = BebopVelocityController()
+    node = GtBebopVelocityController()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

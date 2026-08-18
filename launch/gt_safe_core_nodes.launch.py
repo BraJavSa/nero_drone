@@ -22,16 +22,18 @@ def generate_launch_description():
 
         Node(
             package='neroControl',
-            executable='tf_odom_to_map',
-            name='tf_odom_to_map',
-            output='screen'
-        ),
-        
-        Node(
-            package='neroControl',
-            executable='initial_frame.py',
-            name='initial_frame',
-            output='screen'
+            executable='gt_mocap_odom.py',
+            name='gt_mocap_odom',
+            output='screen',
+            parameters=[{
+                'mocap_topic': '/vrpn_mocap/bebop/pose',
+                'gt_odom_topic': '/bebop/gt_fullodom',
+                'alias_odom_topic': '/bebop/gt_odom',
+                'publish_rate': 15.0,
+                'world_frame': 'world',
+                'child_frame': 'bebop_gt',
+                'filter_window': 1,
+            }]
         ),
 
         Node(
@@ -47,12 +49,11 @@ def generate_launch_description():
             name='bebop_control_gui',
             output='screen'
         ),
-        
-        # tf_camera removed from sim launch; all camera TFs are published directly by simulator_node
-        # Node(
-        #     package='neroControl',
-        #     executable='tf_camera',
-        #     name='camera_tf_with_gimbal',
-        #     output='screen'
-        # ),
+
+        Node(
+            package='neroControl',
+            executable='gt_tf_camera',
+            name='camera_tf_with_gimbal',
+            output='screen'
+        ),
     ])

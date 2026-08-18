@@ -59,12 +59,21 @@ ament_target_dependencies(isfly rclcpp std_msgs)
 add_executable(tf_odom_to_map src/tf_odom_map.cpp)
 ament_target_dependencies(tf_odom_to_map rclcpp tf2_ros geometry_msgs)
 
+add_executable(gt_mocap_odom_cpp src/gt_mocap_odom.cpp)
+ament_target_dependencies(gt_mocap_odom_cpp rclcpp geometry_msgs nav_msgs tf2 tf2_ros tf2_geometry_msgs)
+
+add_executable(gt_velocity_logger src/gt_velocity_logger.cpp)
+ament_target_dependencies(gt_velocity_logger rclcpp geometry_msgs nav_msgs tf2)
+
+add_executable(gt_tf_camera src/gt_tf_camera.cpp)
+ament_target_dependencies(gt_tf_camera rclcpp geometry_msgs std_msgs tf2 tf2_ros)
+
 
 # ---------------- Install ----------------
 install(TARGETS
   joy_to_cmd april_tag_node bebop_tag tf_camera tf_tag_bebop velocity_logger
   safety_watchdog safe_bebop_republisher isfly 
-  tf_odom_to_map  
+  tf_odom_to_map gt_mocap_odom_cpp gt_velocity_logger gt_tf_camera
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -91,6 +100,18 @@ install(PROGRAMS
   nero_control/land_cmd.py
   nero_control/body_velocities_plotter.py
   nero_control/model_logger.py
+  nero_control/gt/gt_mocap_odom.py
+  nero_control/gt/gt_extended_controller.py
+  nero_control/gt/gt_body_realtime_velocity.py
+  nero_control/gt/gt_ibvs_controller.py
+  nero_control/gt/gt_vel_controller.py
+  nero_control/gt/gt_velocity_test.py
+  nero_control/gt/gt_realtime_graphical.py
+  nero_control/gt/gt_model_logger.py
+  nero_control/gt/gt_position_ref.py
+  nero_control/gt/gt_trajectory_ref.py
+  nero_control/gt/gt_gains_optimizer.py
+  nero_control/gt/gt_rk4_simulation.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

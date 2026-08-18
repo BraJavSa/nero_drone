@@ -7,9 +7,9 @@ import time
 import numpy as np
 from scipy.optimize import differential_evolution
 
-# Model Parameters (from simulator_node.py)
-F1_DIAG = np.array([0.823345, 0.641387, 3.808688, 4.260513])
-F2_DIAG = np.array([1.089067, 0.566075, 3.741447, 4.080277])
+# Model Parameters (system_identification_parameters_optitrack_4dof.json)
+F1_DIAG = np.array([0.921527, 1.053286, 4.173221, 8.772786])
+F2_DIAG = np.array([0.247044, 0.395160, 1.975836, 6.101834])
 
 DYN_DT = 1.0 / 15.0    # 15 Hz dynamics integration step (matching controller rate)
 CTRL_DT = 1.0 / 15.0   # 15 Hz controller frequency
