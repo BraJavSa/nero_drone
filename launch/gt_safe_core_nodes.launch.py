@@ -50,10 +50,5 @@ def generate_launch_description():
             output='screen'
         ),
 
-        Node(
-            package='neroControl',
-            executable='gt_tf_camera',
-            name='camera_tf_with_gimbal',
-            output='screen'
-        ),
+
     ])
