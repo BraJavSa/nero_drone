@@ -205,13 +205,12 @@ class GtCascadeController(Node):
 
     def _publish_cmd(self, U_body: np.ndarray):
         cmd = Twist()
-        const=0.1
-        cmd.linear.x  = float(U_body[0])*const
-        cmd.linear.y  = float(U_body[1])*const
-        cmd.linear.z  = float(U_body[2])*0.5
+        cmd.linear.x  = float(U_body[0])
+        cmd.linear.y  = float(U_body[1])
+        cmd.linear.z  = float(U_body[2])*0.0
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
-        cmd.angular.z = float(U_body[3])*0
+        cmd.angular.z = float(U_body[3])*0.0
         self.pub_cmd.publish(cmd)
 
     def _publish_zero(self):
