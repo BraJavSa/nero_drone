@@ -92,7 +92,6 @@ install(PROGRAMS
   nero_control/trajectory_ref.py
   nero_control/multi_trajectory_ref.py
   nero_control/ibvs_controller.py
-  nero_control/article_plotter.py
   nero_control/trajectory_graphical_3d.py
   nero_control/vel_controller.py
   nero_control/pioneer_joy.py
@@ -107,11 +106,8 @@ install(PROGRAMS
   nero_control/gt/gt_vel_controller.py
   nero_control/gt/gt_velocity_test.py
   nero_control/gt/gt_realtime_graphical.py
-  nero_control/gt/gt_model_logger.py
   nero_control/gt/gt_position_ref.py
   nero_control/gt/gt_trajectory_ref.py
-  nero_control/gt/gt_gains_optimizer.py
-  nero_control/gt/gt_rk4_simulation.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
