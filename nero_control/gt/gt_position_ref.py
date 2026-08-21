@@ -31,7 +31,7 @@ class GtRefPublisher(Node):
             [-L, L, 1.5],
             [L, L, 1.5]
         ])
-        self.yaws = np.deg2rad([45, 45, 45, 45, 45])
+        self.yaws = np.deg2rad([0 ,0, 0, 0, 0])
         self.timer = self.create_timer(self.dt, self.timer_cb)
         self.get_logger().info("Publishing GT reference setpoints in 'world' frame (Z in [1.5m, 2.3m]).")
 

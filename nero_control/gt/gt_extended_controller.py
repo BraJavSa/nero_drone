@@ -86,10 +86,10 @@ class GtCascadeController(Node):
         ])
     opt = 1
     if opt == 1:  # trajectory gains (extra strong Y tracking, ultra-smooth U)
-        KP  = np.diag([5.000000, 1.058000, 7.374000, 6.730000])
-        KSP = np.diag([0.201000, 0.201000, 0.200000, 0.492000])
-        KD  = np.diag([2.197000, 8.009000, 1.479000, 0.300000])
-        KSD = np.diag([0.118000, 0.737000, 0.004000, 0.873000]) 
+        KP  = np.diag([0.114000, 0.115000, 1.000000, 1.039000])
+        KSP = np.diag([0.200000, 0.200000, 0.100000, 0.108000])
+        KD  = np.diag([1.003000, 4.990000, 0.500000, 0.301000])
+        KSD = np.diag([0.003000, 2.000000, 0.000000, 0.005000])
 
     U_MAX = np.ones(4)
 
@@ -207,10 +207,10 @@ class GtCascadeController(Node):
         cmd = Twist()
         cmd.linear.x  = float(U_body[0])
         cmd.linear.y  = float(U_body[1])
-        cmd.linear.z  = float(U_body[2])*0.0
+        cmd.linear.z  = float(U_body[2])
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
-        cmd.angular.z = float(U_body[3])*0.0
+        cmd.angular.z = float(U_body[3])
         self.pub_cmd.publish(cmd)
 
     def _publish_zero(self):
