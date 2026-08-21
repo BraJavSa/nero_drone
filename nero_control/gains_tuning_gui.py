@@ -26,7 +26,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 _F1 = np.diag([0.921527, 1.053286, 4.173221, 8.772786])
 _F2 = np.diag([0.247044, 0.395160, 1.975836, 6.101834])
 
-DYN_DT  = 0.064        # 64 ms
+DYN_DT  = 1.0 / 15.0  # 15 Hz (same as CTRL_DT)
 CTRL_DT = 1.0 / 15.0  # 15 Hz
 
 CTRL_F1 = np.array([
@@ -45,9 +45,9 @@ CTRL_F2 = np.array([
 NU_MAX = np.array([0.9, 0.9, 0.8, 0.8])
 U_MAX = np.ones(4)
 
-HOLD_TIME    = 10.0
+HOLD_TIME    = 25.0
 L            = 1.5
-SIM_DURATION = 60.0
+SIM_DURATION = 100.0
 
 POINTS = np.array([
     [0.0, 0.0, 1.8],
@@ -85,13 +85,17 @@ def get_ref_at(t):
     alpha_d = np.zeros(4)
     return eta_d, nu_d, alpha_d
 
-def simulate(KP, KSP, KD, KSD, return_history=False):
-    eta = np.array([0., 0., 1.5, 0.])
+def simulate(KP, KSP, KD, KSD, nu_max=NU_MAX, return_history=False):
+    eta = np.array([0., 0., 1.2, 0.])
     nu  = np.zeros(4)
     X_dot_ref_prev = np.zeros(4)
     errors = []
     eta_hist = []
     eta_d_hist = []
+    nu_hist = []
+    u_hist = []
+    x_dot_ref_hist = []
+    x_ddot_ref_hist = []
     t_hist = []
     t = 0.0
     sim_steps = max(1, round(CTRL_DT / DYN_DT))
@@ -131,12 +135,16 @@ def simulate(KP, KSP, KD, KSD, return_history=False):
         if return_history:
             eta_hist.append(eta.copy())
             eta_d_hist.append(eta_d.copy())
+            nu_hist.append(nu.copy())
+            u_hist.append(U_body.copy())
+            x_dot_ref_hist.append(X_dot_ref.copy())
+            x_ddot_ref_hist.append(X_ddot_ref.copy())
             t_hist.append(t)
 
         for _ in range(sim_steps):
             nu_dot = _F1 @ U_body - _F2 @ nu
             nu     = nu + DYN_DT * nu_dot
-            nu     = np.clip(nu, -NU_MAX, NU_MAX)
+            # True plant physical dynamics (no artificial velocity clipping)
 
             eta_dot  = J(eta[3]) @ nu
             eta      = eta + DYN_DT * eta_dot
@@ -148,7 +156,9 @@ def simulate(KP, KSP, KD, KSD, return_history=False):
         t += CTRL_DT
 
     if return_history:
-        return np.array(errors), np.array(eta_hist), np.array(eta_d_hist), np.array(t_hist)
+        return (np.array(errors), np.array(eta_hist), np.array(eta_d_hist),
+                np.array(nu_hist), np.array(u_hist), np.array(t_hist),
+                np.array(x_dot_ref_hist), np.array(x_ddot_ref_hist))
     return np.array(errors)
 
 def unpack(params):
@@ -158,43 +168,66 @@ def unpack(params):
     KSD = np.diag(params[12:16])
     return KP, KSP, KD, KSD
 
-def cost(params):
+def cost(params, nu_max=NU_MAX):
     KP, KSP, KD, KSD = unpack(params)
 
     try:
-        errors = simulate(KP, KSP, KD, KSD)
+        (errors, eta_hist, eta_d_hist, nu_hist, u_hist, t_hist,
+         x_dot_ref_hist, x_ddot_ref_hist) = simulate(
+            KP, KSP, KD, KSD, nu_max=nu_max, return_history=True
+        )
     except Exception:
         return 1e9
 
     if not np.all(np.isfinite(errors)):
         return 1e9
 
+    # =========================================================================
+    # PRIORIDAD 1 (MÁXIMO PESO): No superar la velocidad máxima permitida (nu_max)
+    # =========================================================================
+    vel_excess = np.maximum(0.0, np.abs(nu_hist) - nu_max)
+    p1_vel_max_penalty = np.sum(vel_excess ** 2) * 10000.0
+
+    ksp_diag = np.diag(KSP)
+    ksp_excess = np.maximum(0.0, ksp_diag - nu_max)
+    p1_ksp_penalty = np.sum(ksp_excess ** 2) * 5000.0
+
+    # =========================================================================
+    # PRIORIDAD 2 (SEGUNDO MÁXIMO PESO): Error de Posición (Tracking Error)
+    # =========================================================================
     N = len(errors)
-    w = np.array([1.0, 1.0, 2.5, 2.5])
+    w_pos = np.array([1.0, 1.0, 2.5, 2.5])
 
-    ise = np.mean((errors ** 2) * w)
-
+    ise_pos = np.mean((errors ** 2) * w_pos)
     n_trans = N // 4
-    transient_penalty = np.mean((errors[:n_trans] ** 2) * w) * 0.4
-    ss_penalty = np.mean((errors[-n_trans:] ** 2) * w) * 1.5
+    transient_penalty = np.mean((errors[:n_trans] ** 2) * w_pos) * 0.4
+    ss_penalty = np.mean((errors[-n_trans:] ** 2) * w_pos) * 1.5
+    p2_pos_error_cost = (ise_pos + transient_penalty + ss_penalty) * 100.0
 
-    return ise + transient_penalty + ss_penalty
+    # =========================================================================
+    # PRIORIDAD 3 (MENOR PESO): Velocidad deseada y Aceleración deseada
+    # =========================================================================
+    p3_vel_ref_cost = np.mean(x_dot_ref_hist ** 2) * 0.5
+    p3_acc_ref_cost = np.mean(x_ddot_ref_hist ** 2) * 0.1
+
+    return p1_vel_max_penalty + p1_ksp_penalty + p2_pos_error_cost + p3_vel_ref_cost + p3_acc_ref_cost
 
 # Bounds from gains_optimization_position.py
 BOUNDS = [
-    (0.3,  4.0), (0.3,  4.0), (4.0,  8.0), (8.0, 14.0),  # KP: x, y, z, yaw
+    (0.1,  5.0), (0.1,  5.0), (1.0,  8.0), (1.0, 14.0),  # KP: x, y, z, yaw
     (0.2,  0.9), (0.2,  0.9), (0.1,  0.8), (0.1,  0.8),  # KSP: x, y, z, yaw
     (1.0, 10.0), (1.0, 10.0), (0.5,  5.0), (0.3,  3.0),  # KD: x, y, z, yaw
-    (0.2,  2.0), (0.2,  2.0), (0.1,  1.0), (0.1,  0.8),  # KSD: x, y, z, yaw
+    (0.0,  2.0), (0.0,  2.0), (0.0,  2.0), (0.0,  2.0),  # KSD: x, y, z, yaw
 ]
 
 # Preset optimal position gains
 DEFAULT_POS_GAINS = [
-    4.000000, 4.000000, 8.000000, 11.324606,  # KP
-    0.900000, 0.900000, 0.800000, 0.800000,   # KSP
-    5.029369, 3.317635, 5.000000, 3.000000,   # KD
-    1.917397, 1.986195, 1.000000, 0.800000    # KSD
+    3.880000, 3.416000, 8.000000, 12.533000,  # KP
+    0.203000, 0.203000, 0.200000, 0.301000,   # KSP
+    8.835000, 10.000000, 2.376000, 1.962000,   # KD
+    2.000000, 2.000000, 0.985000, 0.800000    # KSD
 ]
+
 
 # Preset initial/trajectory gains (just for a reference, clipped to bounds where necessary)
 TRAJECTORY_GAINS_RAW = [
@@ -304,11 +337,12 @@ class GainSlider:
 # Background Optimization Worker Thread
 # ==============================================================================
 class OptimizerWorker(threading.Thread):
-    def __init__(self, q, current_params, bounds):
+    def __init__(self, q, current_params, bounds, nu_max=NU_MAX):
         super().__init__()
         self.q = q
         self.current_params = current_params
         self.bounds = bounds
+        self.nu_max = nu_max
         self.stop_requested = False
         
     def run(self):
@@ -316,7 +350,7 @@ class OptimizerWorker(threading.Thread):
             if self.stop_requested:
                 return True
             try:
-                c = cost(xk)
+                c = cost(xk, self.nu_max)
             except Exception:
                 c = 9e9
             self.q.put(('update', xk.copy(), c))
@@ -325,7 +359,7 @@ class OptimizerWorker(threading.Thread):
             # We can run differential evolution.
             # Using workers=1 is 100% safe inside a thread context.
             result = differential_evolution(
-                cost,
+                lambda x: cost(x, self.nu_max),
                 self.bounds,
                 strategy='best1bin',
                 maxiter=10,
@@ -404,68 +438,146 @@ class GainsTuningGUI:
         # 4. Setup Control Panel widgets inside Right Frame
         self.setup_controls()
 
+    def get_nu_max(self):
+        nu_max = np.array([0.9, 0.9, 0.8, 0.8])
+        if hasattr(self, 'vel_entries') and len(self.vel_entries) == 4:
+            for i in range(4):
+                try:
+                    v = float(self.vel_entries[i].get())
+                    if v > 0:
+                        nu_max[i] = v
+                except ValueError:
+                    pass
+        return nu_max
+
     def setup_plots(self):
-        # Create dark themed Matplotlib figure
+        # Create dark themed Matplotlib figure with 4 rows and 3 columns
         plt.style.use('dark_background')
-        self.fig, self.axs = plt.subplots(2, 2, figsize=(7, 6))
+        self.fig, self.axs = plt.subplots(4, 3, figsize=(10, 7.5), sharex=True)
         self.fig.patch.set_facecolor(BG_DARK)
-        self.axs_flat = self.axs.ravel()
         
-        # Get one run to capture initial references/time vector
+        nu_max = self.get_nu_max()
         initial_params = DEFAULT_POS_GAINS
         KP, KSP, KD, KSD = unpack(initial_params)
-        errors, eta_hist, eta_d_hist, t_hist = simulate(KP, KSP, KD, KSD, return_history=True)
+        errors, eta_hist, eta_d_hist, nu_hist, u_hist, t_hist, *rest = simulate(
+            KP, KSP, KD, KSD, nu_max=nu_max, return_history=True
+        )
         
         self.t_hist = t_hist
         self.ref_lines = []
         self.sim_lines = []
+        self.vel_lines = []
+        self.vel_limit_pos_lines = []
+        self.vel_limit_neg_lines = []
+        self.u_lines = []
+        self.u_limit_pos_lines = []
+        self.u_limit_neg_lines = []
         
-        labels = ["X Coordinate", "Y Coordinate", "Z Coordinate (Altitude)", "Yaw Angle (Rotation)"]
-        units = ["m", "m", "m", "deg"]
+        pos_labels = ["X Position", "Y Position", "Z Altitude", "Yaw Angle"]
+        pos_units = ["m", "m", "m", "deg"]
+        vel_labels = ["Vx Body", "Vy Body", "Vz Body", "Yaw Rate r"]
+        vel_units = ["m/s", "m/s", "m/s", "deg/s"]
+        u_labels = ["Cmd Ux (Roll)", "Cmd Uy (Pitch)", "Cmd Uz (Gaz)", "Cmd Uyaw"]
+        u_units = ["norm", "norm", "norm", "norm"]
         
         for i in range(4):
-            ax = self.axs_flat[i]
-            ax.set_facecolor(BG_PANEL)
-            ax.set_title(f"{labels[i]}", color=TEXT_MAIN, fontsize=10, fontweight='bold', pad=8)
-            ax.set_xlabel("Time [s]", color=TEXT_MUTED, fontsize=8)
-            ax.set_ylabel(f"[{units[i]}]", color=TEXT_MUTED, fontsize=8)
+            # --- Column 0: Position Tracking ---
+            ax_pos = self.axs[i, 0]
+            ax_pos.set_facecolor(BG_PANEL)
+            ax_pos.set_title(f"{pos_labels[i]}", color=TEXT_MAIN, fontsize=8, fontweight='bold', pad=3)
+            ax_pos.set_ylabel(f"[{pos_units[i]}]", color=TEXT_MUTED, fontsize=8)
+            ax_pos.grid(True, color='#313244', linestyle=':', alpha=0.6)
             
-            # Setup grid
-            ax.grid(True, color='#313244', linestyle=':', alpha=0.6)
-            
-            # Format spines
             for spine in ['top', 'right']:
-                ax.spines[spine].set_visible(False)
+                ax_pos.spines[spine].set_visible(False)
             for spine in ['bottom', 'left']:
-                ax.spines[spine].set_color('#45475a')
+                ax_pos.spines[spine].set_color('#45475a')
                 
-            # Plot reference (convert yaw to degrees)
             ref_data = eta_d_hist[:, i]
             if i == 3:
                 ref_data = np.degrees(ref_data)
-            ref_line, = ax.plot(t_hist, ref_data, color=ACCENT_RED, linestyle='--', linewidth=1.5, label="Reference")
+            ref_line, = ax_pos.plot(t_hist, ref_data, color=ACCENT_RED, linestyle='--', linewidth=1.2, label="Reference")
             self.ref_lines.append(ref_line)
             
-            # Plot simulated (convert yaw to degrees)
             sim_data = eta_hist[:, i]
             if i == 3:
                 sim_data = np.degrees(sim_data)
-            sim_line, = ax.plot(t_hist, sim_data, color=ACCENT_BLUE, linewidth=1.8, label="Simulated")
+            sim_line, = ax_pos.plot(t_hist, sim_data, color=ACCENT_BLUE, linewidth=1.4, label="Simulated")
             self.sim_lines.append(sim_line)
             
             if i == 0:
-                ax.legend(facecolor=BG_PANEL, edgecolor='#313244', fontsize=8, loc='upper right')
+                ax_pos.legend(facecolor=BG_PANEL, edgecolor='#313244', fontsize=7, loc='upper right')
                 
-            # Set initial limits
             margin_min = min(np.min(ref_data), np.min(sim_data))
             margin_max = max(np.max(ref_data), np.max(sim_data))
             span = margin_max - margin_min
             if span < 1e-3:
                 span = 1.0
-            ax.set_ylim(margin_min - 0.15 * span, margin_max + 0.15 * span)
-            ax.set_xlim(0, SIM_DURATION)
-            ax.tick_params(colors=TEXT_MUTED, labelsize=8)
+            ax_pos.set_ylim(margin_min - 0.15 * span, margin_max + 0.15 * span)
+            ax_pos.set_xlim(0, SIM_DURATION)
+            ax_pos.tick_params(colors=TEXT_MUTED, labelsize=7)
+
+            # --- Column 1: Body Velocity ---
+            ax_vel = self.axs[i, 1]
+            ax_vel.set_facecolor(BG_PANEL)
+            ax_vel.set_title(f"{vel_labels[i]}", color=TEXT_MAIN, fontsize=8, fontweight='bold', pad=3)
+            ax_vel.set_ylabel(f"[{vel_units[i]}]", color=TEXT_MUTED, fontsize=8)
+            ax_vel.grid(True, color='#313244', linestyle=':', alpha=0.6)
             
+            for spine in ['top', 'right']:
+                ax_vel.spines[spine].set_visible(False)
+            for spine in ['bottom', 'left']:
+                ax_vel.spines[spine].set_color('#45475a')
+                
+            vel_data = nu_hist[:, i]
+            if i == 3:
+                vel_data = np.degrees(vel_data)
+            vel_line, = ax_vel.plot(t_hist, vel_data, color=ACCENT_GREEN, linewidth=1.4, label="Velocity")
+            self.vel_lines.append(vel_line)
+            
+            v_limit = nu_max[i]
+            if i == 3:
+                v_limit = np.degrees(v_limit)
+            lim_pos = ax_vel.axhline(v_limit, color=ACCENT_RED, linestyle=':', linewidth=1.0, alpha=0.8)
+            lim_neg = ax_vel.axhline(-v_limit, color=ACCENT_RED, linestyle=':', linewidth=1.0, alpha=0.8)
+            self.vel_limit_pos_lines.append(lim_pos)
+            self.vel_limit_neg_lines.append(lim_neg)
+            
+            if i == 0:
+                ax_vel.legend(facecolor=BG_PANEL, edgecolor='#313244', fontsize=7, loc='upper right')
+            ax_vel.tick_params(colors=TEXT_MUTED, labelsize=7)
+
+            # --- Column 2: Control Action ---
+            ax_u = self.axs[i, 2]
+            ax_u.set_facecolor(BG_PANEL)
+            ax_u.set_title(f"{u_labels[i]}", color=TEXT_MAIN, fontsize=8, fontweight='bold', pad=3)
+            ax_u.set_ylabel(f"[{u_units[i]}]", color=TEXT_MUTED, fontsize=8)
+            ax_u.grid(True, color='#313244', linestyle=':', alpha=0.6)
+            
+            for spine in ['top', 'right']:
+                ax_u.spines[spine].set_visible(False)
+            for spine in ['bottom', 'left']:
+                ax_u.spines[spine].set_color('#45475a')
+                
+            u_data = u_hist[:, i]
+            u_line, = ax_u.plot(t_hist, u_data, color=ACCENT_PURPLE, linewidth=1.4, label="Control Cmd")
+            self.u_lines.append(u_line)
+            
+            u_max_val = U_MAX[i]
+            u_lim_pos = ax_u.axhline(u_max_val, color=ACCENT_RED, linestyle=':', linewidth=1.0, alpha=0.8)
+            u_lim_neg = ax_u.axhline(-u_max_val, color=ACCENT_RED, linestyle=':', linewidth=1.0, alpha=0.8)
+            self.u_limit_pos_lines.append(u_lim_pos)
+            self.u_limit_neg_lines.append(u_lim_neg)
+            
+            if i == 0:
+                ax_u.legend(facecolor=BG_PANEL, edgecolor='#313244', fontsize=7, loc='upper right')
+            ax_u.tick_params(colors=TEXT_MUTED, labelsize=7)
+            ax_u.set_ylim(-u_max_val * 1.25, u_max_val * 1.25)
+
+        self.axs[3, 0].set_xlabel("Time [s]", color=TEXT_MUTED, fontsize=8)
+        self.axs[3, 1].set_xlabel("Time [s]", color=TEXT_MUTED, fontsize=8)
+        self.axs[3, 2].set_xlabel("Time [s]", color=TEXT_MUTED, fontsize=8)
+        
         self.fig.tight_layout()
         
         # Embed in Tkinter
@@ -543,7 +655,7 @@ class GainsTuningGUI:
             padx=10,
             pady=8
         )
-        presets_frame.pack(fill=tk.X, pady=(15, 10))
+        presets_frame.pack(fill=tk.X, pady=(15, 5))
         
         btn_pos = create_button(
             presets_frame,
@@ -560,6 +672,34 @@ class GainsTuningGUI:
             bg_color=BG_CARD
         )
         btn_traj.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        # 3b. Max Body Velocities Frame
+        max_vel_frame = tk.LabelFrame(
+            self.right_frame,
+            text="Max Body Velocity Constraints (m/s & rad/s)",
+            bg=BG_PANEL,
+            fg=TEXT_MAIN,
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=6
+        )
+        max_vel_frame.pack(fill=tk.X, pady=(0, 5))
+
+        vel_labels = ["Vx max (m/s)", "Vy max (m/s)", "Vz max (m/s)", "Vyaw max (rad/s)"]
+        default_vels = [0.9, 0.9, 0.8, 0.8]
+        self.vel_entries = []
+
+        for i in range(4):
+            max_vel_frame.columnconfigure(i, weight=1)
+            box = tk.Frame(max_vel_frame, bg=BG_CARD, padx=4, pady=4)
+            box.grid(row=0, column=i, padx=3, pady=2, sticky='nsew')
+            
+            tk.Label(box, text=vel_labels[i], bg=BG_CARD, fg=TEXT_MUTED, font=('Arial', 8)).pack()
+            entry = tk.Entry(box, bg=BG_DARK, fg=ACCENT_BLUE, font=('Arial', 10, 'bold'), justify='center', width=8)
+            entry.insert(0, str(default_vels[i]))
+            entry.pack(pady=2)
+            entry.bind("<KeyRelease>", lambda e: self.on_slider_change(None))
+            self.vel_entries.append(entry)
         
         # 4. Live Statistics Cards Frame
         stats_frame = tk.LabelFrame(
@@ -571,7 +711,7 @@ class GainsTuningGUI:
             padx=10,
             pady=8
         )
-        stats_frame.pack(fill=tk.X, pady=(0, 10))
+        stats_frame.pack(fill=tk.X, pady=(0, 5))
         
         # Stats layout inside card: 2 rows of 3 columns
         for i in range(3):
@@ -685,16 +825,19 @@ class GainsTuningGUI:
         # Get current parameters from sliders
         params = [slider.get() for slider in self.sliders]
         KP, KSP, KD, KSD = unpack(params)
+        nu_max = self.get_nu_max()
         
         try:
-            errors, eta_hist, eta_d_hist, t_hist = simulate(KP, KSP, KD, KSD, return_history=True)
+            errors, eta_hist, eta_d_hist, nu_hist, u_hist, t_hist, *rest = simulate(
+                KP, KSP, KD, KSD, nu_max=nu_max, return_history=True
+            )
         except Exception as e:
             print(f"Simulation error: {e}")
             return
             
         # Calculate RMS & Cost
         rms = np.sqrt(np.mean(errors ** 2, axis=0))
-        current_cost = cost(params)
+        current_cost = cost(params, nu_max=nu_max)
         
         # Update metrics labels
         self.cost_val_label.config(text=f"{current_cost:.5f}")
@@ -705,30 +848,59 @@ class GainsTuningGUI:
         
         # Update plotted lines
         for i in range(4):
+            # Update Position
             sim_data = eta_hist[:, i]
             if i == 3:
                 sim_data = np.degrees(sim_data)
             self.sim_lines[i].set_ydata(sim_data)
             
-            # Autoscale limits dynamically if data runs off screen
-            ax = self.axs_flat[i]
-            ymin, ymax = ax.get_ylim()
+            ax_pos = self.axs[i, 0]
+            ymin, ymax = ax_pos.get_ylim()
             min_d, max_d = np.min(sim_data), np.max(sim_data)
-            
             ref_data = eta_d_hist[:, i]
             if i == 3:
                 ref_data = np.degrees(ref_data)
             min_ref, max_ref = np.min(ref_data), np.max(ref_data)
             
-            # If the data exceeds the window or is way too compressed, resize
             if min_d < ymin or max_d > ymax or (ymax - ymin) > 4.0 * (max_d - min_d + 1e-2):
                 margin_min = min(min_d, min_ref)
                 margin_max = max(max_d, max_ref)
                 span = margin_max - margin_min
                 if span < 1e-3:
                     span = 1.0
-                ax.set_ylim(margin_min - 0.15 * span, margin_max + 0.15 * span)
+                ax_pos.set_ylim(margin_min - 0.15 * span, margin_max + 0.15 * span)
                 
+            # Update Body Velocity
+            vel_data = nu_hist[:, i]
+            if i == 3:
+                vel_data = np.degrees(vel_data)
+            self.vel_lines[i].set_ydata(vel_data)
+            
+            v_lim = nu_max[i]
+            if i == 3:
+                v_lim = np.degrees(v_lim)
+            self.vel_limit_pos_lines[i].set_ydata([v_lim, v_lim])
+            self.vel_limit_neg_lines[i].set_ydata([-v_lim, -v_lim])
+            
+            ax_vel = self.axs[i, 1]
+            min_v, max_v = np.min(vel_data), np.max(vel_data)
+            limit_margin = max(abs(min_v), abs(max_v), v_lim) * 1.25
+            if limit_margin < 1e-2:
+                limit_margin = 1.0
+            ax_vel.set_ylim(-limit_margin, limit_margin)
+
+            # Update Control Action
+            u_data = u_hist[:, i]
+            self.u_lines[i].set_ydata(u_data)
+            
+            ax_u = self.axs[i, 2]
+            min_u, max_u = np.min(u_data), np.max(u_data)
+            u_lim_val = U_MAX[i]
+            limit_margin_u = max(abs(min_u), abs(max_u), u_lim_val) * 1.25
+            if limit_margin_u < 1e-2:
+                limit_margin_u = 1.0
+            ax_u.set_ylim(-limit_margin_u, limit_margin_u)
+
         # Trigger Matplotlib redraw
         self.canvas.draw_idle()
 
@@ -754,6 +926,7 @@ class GainsTuningGUI:
     def save_gains_to_file(self):
         params = [slider.get() for slider in self.sliders]
         KP, KSP, KD, KSD = unpack(params)
+        nu_max = self.get_nu_max()
         
         def fmt_mat(name, mat):
             d = np.diag(mat)
@@ -774,7 +947,8 @@ class GainsTuningGUI:
         try:
             with open(out_path, "w") as f:
                 f.write("# Customized gains for extended_controller.py\n")
-                f.write(f"# Total ISE cost: {cost(params):.6f}\n\n")
+                f.write(f"# Max velocities [Vx, Vy, Vz, Vyaw]: {nu_max.tolist()}\n")
+                f.write(f"# Total ISE cost: {cost(params, nu_max=nu_max):.6f}\n\n")
                 for l in lines[3:]:
                     f.write(l.strip() + "\n")
             messagebox.showinfo("Success", f"Gains successfully saved to: {os.path.abspath(out_path)}\n\nSaved output:\n" + "\n".join(lines[3:]))
@@ -793,8 +967,9 @@ class GainsTuningGUI:
         self.status_label.config(text="Status: Optimizing (Initializing DE population)...", fg=ACCENT_GREEN)
         
         current_params = np.array([slider.get() for slider in self.sliders])
+        nu_max = self.get_nu_max()
         self.opt_queue = queue.Queue()
-        self.opt_thread = OptimizerWorker(self.opt_queue, current_params, BOUNDS)
+        self.opt_thread = OptimizerWorker(self.opt_queue, current_params, BOUNDS, nu_max=nu_max)
         self.opt_thread.start()
         
         # Start checking queue for updates

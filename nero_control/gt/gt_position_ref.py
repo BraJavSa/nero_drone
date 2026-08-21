@@ -23,15 +23,13 @@ class GtRefPublisher(Node):
         self.start_time = time.time()
         self.t0 = time.time()
         self.idx = 0
-        L = 1.5
-
-        # Target setpoints in OptiTrack 'world' frame within [-1.8, 1.8] m (X,Y) and [1.5, 2.3] m (Z)
+        L = 1.0
         self.points = np.array([
             [0.0, 0.0, 1.8],
-            [-1.5, -1.5, 1.6],
-            [1.5, -1.5, 2.2],
-            [-1.5, 1.5, 1.7],
-            [1.5, 1.5, 2.3]
+            [-L, -L, 1.6],
+            [L, -L, 2.2],
+            [-L, L, 1.7],
+            [L, L, 2.3]
         ])
         self.yaws = np.deg2rad([0, 45, -45, 90, -90])
         self.timer = self.create_timer(self.dt, self.timer_cb)

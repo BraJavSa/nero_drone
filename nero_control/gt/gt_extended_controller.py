@@ -86,15 +86,10 @@ class GtCascadeController(Node):
         ])
     opt = 1
     if opt == 1:  # trajectory gains (extra strong Y tracking, ultra-smooth U)
-        KP  = np.diag([2.000000, 3.500000, 2.200000, 2.000000])
-        KSP = np.diag([0.500000, 0.700000, 0.500000, 0.400000])
-        KD  = np.diag([0.500000, 0.600000, 0.500000, 0.400000])
-        KSD = np.diag([0.150000, 0.220000, 0.150000, 0.150000])
-    else:  # position gains (fast Z & Yaw, smooth XY)
-        KP  = np.diag([2.500000, 2.500000, 3.500000, 4.500000])
-        KSP = np.diag([0.800000, 0.800000, 0.800000, 0.800000])
-        KD  = np.diag([4.000000, 4.000000, 2.500000, 2.000000])
-        KSD = np.diag([0.500000, 0.500000, 0.800000, 0.800000])
+        KP  = np.diag([5.000000, 1.058000, 7.374000, 6.730000])
+        KSP = np.diag([0.201000, 0.201000, 0.200000, 0.492000])
+        KD  = np.diag([2.197000, 8.009000, 1.479000, 0.300000])
+        KSD = np.diag([0.118000, 0.737000, 0.004000, 0.873000])
 
     U_MAX = np.ones(4)
 
@@ -186,6 +181,7 @@ class GtCascadeController(Node):
 
         X_dot = J @ nu
 
+        self.eta_d[3] = eta[3]  # Forzar que la referencia de yaw sea el actual
         X_tilde      = self.eta_d - eta
         X_tilde[3]   = wrap_angle(X_tilde[3])
 
@@ -209,13 +205,13 @@ class GtCascadeController(Node):
 
     def _publish_cmd(self, U_body: np.ndarray):
         cmd = Twist()
-        const=0.2
+        const=0.1
         cmd.linear.x  = float(U_body[0])*const
         cmd.linear.y  = float(U_body[1])*const
-        cmd.linear.z  = float(U_body[2])*const
+        cmd.linear.z  = float(U_body[2])*0.5
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
-        cmd.angular.z = float(U_body[3])*const
+        cmd.angular.z = float(U_body[3])*0
         self.pub_cmd.publish(cmd)
 
     def _publish_zero(self):

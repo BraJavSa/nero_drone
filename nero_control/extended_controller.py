@@ -209,7 +209,7 @@ class CascadeController(Node):
         cmd.linear.z  = float(U_body[2])
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
-        cmd.angular.z = float(U_body[3])
+        cmd.angular.z = float(U_body[3])*0
         self.pub_cmd.publish(cmd)
 
     def _publish_zero(self):
