@@ -113,6 +113,14 @@ class GtCascadeController(Node):
         self.odom_received = False
         self.ref_received  = False
 
+        # Safety cube limits (m)
+        self.SAFE_XY = 1.5   # ±1.5 m in X and Y
+        self.SAFE_Z_MAX = 2.0  # max altitude 2 m
+
+        # First-reference initialization guard
+        self.first_ref_initialized = False  # True once X_dot_ref_prev seeded
+        self.ref_last_time = None           # ROS time of last ref received
+
         # Subscribes to Ground Truth Odometry
         self.sub_odom = self.create_subscription(
             Odometry, '/bebop/gt_fullodom', self.odom_callback, 10)
@@ -148,6 +156,20 @@ class GtCascadeController(Node):
         if len(msg.data) < 12:
             return
 
+        now = self.get_clock().now()
+
+        # If it's been more than 1 s since the last reference, treat the
+        # next one as the very first so we re-seed X_dot_ref_prev and avoid
+        # a derivative spike.
+        if self.ref_last_time is not None:
+            dt_since = (now - self.ref_last_time).nanoseconds * 1e-9
+            if dt_since > 1.0:
+                self.first_ref_initialized = False
+                self.get_logger().warn(
+                    f"Ref gap {dt_since:.2f}s > 1s — re-initializing first-ref guard.")
+
+        self.ref_last_time = now
+
         self.eta_d   = np.array(msg.data[0:4])
         self.nu_d    = np.array(msg.data[4:8])
         self.alpha_d = np.array(msg.data[8:12])
@@ -172,6 +194,21 @@ class GtCascadeController(Node):
         psi = eta[3]
         r   = nu[3]
 
+        # ── Safety cube ──────────────────────────────────────────────────
+        # If the drone is outside the allowed volume, kill all commands.
+        x_out = abs(eta[0]) > self.SAFE_XY
+        y_out = abs(eta[1]) > self.SAFE_XY
+        z_out = eta[2] > self.SAFE_Z_MAX or eta[2] < 0.0
+        if x_out or y_out or z_out:
+            self.get_logger().warn(
+                f"SAFETY: position ({eta[0]:.2f}, {eta[1]:.2f}, {eta[2]:.2f}) "
+                f"outside safe cube. Sending zero cmd.",
+                throttle_duration_sec=0.5)
+            self._publish_zero()
+            self._reset_memory()
+            return
+        # ─────────────────────────────────────────────────────────────────
+
         J        = jacobian(psi)
         J_dot    = jacobian_dot(psi, r)
         J_inv    = jacobian_inv(psi)
@@ -181,13 +218,25 @@ class GtCascadeController(Node):
 
         X_dot = J @ nu
 
-        self.eta_d[3] = eta[3]  # Forzar que la referencia de yaw sea el actual
+        # Force Yaw and Z references to current measured values (no tracking)
+        self.eta_d[3] = eta[3]  # yaw ref = current yaw
+        self.eta_d[2] = eta[2]  # z   ref = current z
         X_tilde      = self.eta_d - eta
         X_tilde[3]   = wrap_angle(X_tilde[3])
 
-        X_dot_ref    = self.nu_d + self.KSP @ np.tanh(self.KP @ X_tilde)
+        X_dot_ref = self.nu_d + self.KSP @ np.tanh(self.KP @ X_tilde)
 
-        X_dot_tilde  = X_dot_ref - X_dot
+        # ── First-reference guard ─────────────────────────────────────────
+        # On the very first valid iteration, seed X_dot_ref_prev so that
+        # X_ddot_ref_raw = 0 and there is no acceleration spike.
+        if not self.first_ref_initialized:
+            self.X_dot_ref_prev = X_dot_ref.copy()
+            self.X_ddot_ref_filt = np.zeros(4)
+            self.first_ref_initialized = True
+            self.get_logger().info("First reference received — seeding derivative memory.")
+        # ─────────────────────────────────────────────────────────────────
+
+        X_dot_tilde    = X_dot_ref - X_dot
         X_ddot_ref_raw = (X_dot_ref - self.X_dot_ref_prev) / self.Ts
         self.X_dot_ref_prev = X_dot_ref.copy()
         self.X_ddot_ref_filt = 0.7 * self.X_ddot_ref_filt + 0.3 * X_ddot_ref_raw
@@ -207,10 +256,10 @@ class GtCascadeController(Node):
         cmd = Twist()
         cmd.linear.x  = float(U_body[0])
         cmd.linear.y  = float(U_body[1])
-        cmd.linear.z  = float(U_body[2])
+        cmd.linear.z  = 0.0  # Z fixed to zero (ref = current Z, no Z tracking)
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
-        cmd.angular.z = float(U_body[3])
+        cmd.angular.z = 0.0  # Yaw fixed to zero (ref = current Yaw, no yaw tracking)
         self.pub_cmd.publish(cmd)
 
     def _publish_zero(self):
@@ -219,6 +268,7 @@ class GtCascadeController(Node):
     def _reset_memory(self):
         self.X_dot_ref_prev = np.zeros(4)
         self.X_ddot_ref_filt = np.zeros(4)
+        self.first_ref_initialized = False
 
 
 def main(args=None):

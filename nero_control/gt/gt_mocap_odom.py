@@ -42,7 +42,6 @@ class GtMocapOdomNode(Node):
 
         self.declare_parameter('mocap_topic', '/vrpn_mocap/bebop/pose')
         self.declare_parameter('gt_odom_topic', '/bebop/gt_fullodom')
-        self.declare_parameter('alias_odom_topic', '/bebop/gt_odom')
         self.declare_parameter('publish_rate', 15.0)
         self.declare_parameter('world_frame', 'world')
         self.declare_parameter('child_frame', 'bebop_gt')
@@ -50,7 +49,6 @@ class GtMocapOdomNode(Node):
 
         mocap_topic = self.get_parameter('mocap_topic').get_parameter_value().string_value
         gt_odom_topic = self.get_parameter('gt_odom_topic').get_parameter_value().string_value
-        alias_odom_topic = self.get_parameter('alias_odom_topic').get_parameter_value().string_value
         rate_hz = self.get_parameter('publish_rate').get_parameter_value().double_value
         self.world_frame = self.get_parameter('world_frame').get_parameter_value().string_value
         self.child_frame = self.get_parameter('child_frame').get_parameter_value().string_value
@@ -58,7 +56,7 @@ class GtMocapOdomNode(Node):
 
         self.get_logger().info(f"Initializing GT Mocap Odom Node at {rate_hz} Hz...")
         self.get_logger().info(f"Subscribing to: {mocap_topic} with BEST_EFFORT QoS")
-        self.get_logger().info(f"Publishing GT Odometry to: {gt_odom_topic} and {alias_odom_topic}")
+        self.get_logger().info(f"Publishing GT Odometry to: {gt_odom_topic}")
 
         mocap_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -84,7 +82,6 @@ class GtMocapOdomNode(Node):
         )
 
         self.pub_gt_odom = self.create_publisher(Odometry, gt_odom_topic, 10)
-        self.pub_alias_odom = self.create_publisher(Odometry, alias_odom_topic, 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.timer = self.create_timer(1.0 / rate_hz, self.timer_callback)
@@ -211,7 +208,6 @@ class GtMocapOdomNode(Node):
         odom.twist.covariance[35] = 1e-3
 
         self.pub_gt_odom.publish(odom)
-        self.pub_alias_odom.publish(odom)
 
         tf_msg = TransformStamped()
         tf_msg.header.stamp = odom.header.stamp
