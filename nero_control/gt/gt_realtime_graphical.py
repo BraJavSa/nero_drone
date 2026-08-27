@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Ground Truth Real-Time Plotter for monitoring live drone telemetry from /bebop/gt_fullodom.
+Ground Truth Real-Time Plotter for monitoring live drone telemetry from /bebop/gt_fullodom,
+reference commands from /bebop/ref_vec, and control signals from /bebop/cmd_vel.
 """
 
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import threading
@@ -19,16 +21,22 @@ class GtRealTimePlot(Node):
         super().__init__('gt_realtime_plot_node')
         self.sub_odom = self.create_subscription(Odometry, '/bebop/gt_fullodom', self.odom_callback, 10)
         self.sub_ref = self.create_subscription(Float64MultiArray, '/bebop/ref_vec', self.ref_callback, 10)
+        self.sub_cmd = self.create_subscription(Twist, '/bebop/cmd_vel', self.cmd_callback, 10)
+
         self.points = 150
         self.x_axis = np.linspace(0, 1, self.points)
         self.lock = threading.Lock()
         self.data_buf = np.zeros((8, self.points))
         self.ref_buf = np.zeros((8, self.points))
-        self.fig, self.axs = plt.subplots(4, 2, figsize=(11, 9))
-        self.fig.canvas.manager.set_window_title('Bebop 2: Ground Truth State Tracking')
+        self.cmd_buf = np.zeros((4, self.points))
+
+        self.fig, self.axs = plt.subplots(4, 3, figsize=(14, 9))
+        self.fig.canvas.manager.set_window_title('Bebop 2: Ground Truth State & Control Tracking')
+
         labels = ['x [m]', 'y [m]', 'z [m]', 'yaw [rad]', 
                   'vx_global [m/s]', 'vy_global [m/s]', 'vz [m/s]', 'v_yaw [rad/s]']
-        self.lines_pos, self.lines_ref = [], []
+        self.lines_pos, self.lines_ref, self.lines_cmd = [], [], []
+
         for i in range(8):
             ax = self.axs[i % 4, i // 4]
             ax.set_ylabel(labels[i])
@@ -42,8 +50,19 @@ class GtRealTimePlot(Node):
             self.lines_pos.append(lp)
             self.lines_ref.append(lr)
             if i == 0: ax.legend(loc='upper right', fontsize='x-small')
+
+        cmd_labels = ['u_x (pitch)', 'u_y (roll)', 'u_z (gaz)', 'u_yaw (yaw rate)']
+        for r in range(4):
+            ax = self.axs[r, 2]
+            ax.set_ylabel(cmd_labels[r])
+            ax.set_xlim(0, 1)
+            ax.set_ylim(-1.1, 1.1)
+            lc, = ax.plot(self.x_axis, self.cmd_buf[r], lw=1.5, color='#2ca02c', animated=True, label='Control Cmd')
+            self.lines_cmd.append(lc)
+            if r == 0: ax.legend(loc='upper right', fontsize='x-small')
+
         self.fig.tight_layout()
-        self.ani = FuncAnimation(self.fig, self.update_plot, interval=33, blit=True, cache_frame_data=False)
+        self.ani = FuncAnimation(self.fig, self.update_plot, interval=67, blit=True, cache_frame_data=False)
 
     def odom_callback(self, msg: Odometry):
         q = msg.pose.pose.orientation
@@ -84,12 +103,25 @@ class GtRealTimePlot(Node):
             self.ref_buf = np.roll(self.ref_buf, -1, axis=1)
             self.ref_buf[:, -1] = ref_arr
 
+    def cmd_callback(self, msg: Twist):
+        curr_cmd = [
+            msg.linear.x,
+            msg.linear.y,
+            msg.linear.z,
+            msg.angular.z
+        ]
+        with self.lock:
+            self.cmd_buf = np.roll(self.cmd_buf, -1, axis=1)
+            self.cmd_buf[:, -1] = curr_cmd
+
     def update_plot(self, frame):
         with self.lock:
             for i in range(8):
                 self.lines_pos[i].set_ydata(self.data_buf[i])
                 self.lines_ref[i].set_ydata(self.ref_buf[i])
-        return self.lines_pos + self.lines_ref
+            for r in range(4):
+                self.lines_cmd[r].set_ydata(self.cmd_buf[r])
+        return self.lines_pos + self.lines_ref + self.lines_cmd
 
 def main(args=None):
     rclpy.init(args=args)
@@ -99,3 +131,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
