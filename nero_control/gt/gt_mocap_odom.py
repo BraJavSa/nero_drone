@@ -11,6 +11,9 @@ from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 
 
+from collections import deque
+
+
 def quat_to_euler(q):
     sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z)
     cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
@@ -35,6 +38,51 @@ def angle_diff(a: float, b: float) -> float:
     return d
 
 
+class AlphaBeta1D:
+
+    def __init__(self, is_angle: bool = False, window_size: int = 5):
+        self.is_angle = is_angle
+        self.window_size = window_size
+        self.history = deque(maxlen=window_size)
+        self.x = None
+        self.v = 0.0
+
+        n_float = float(window_size)
+        self.alpha = 2.0 * (2.0 * n_float - 1.0) / (n_float * (n_float + 1.0))
+        self.beta = 6.0 / (n_float * (n_float + 1.0))
+
+    def update(self, z: float, dt: float):
+        self.history.append(z)
+
+        if self.x is None:
+            self.x = z
+            self.v = 0.0
+            return self.x, self.v
+
+        x_pred = self.x + self.v * dt
+        v_pred = self.v
+
+        if self.is_angle:
+            res = angle_diff(z, x_pred)
+        else:
+            res = z - x_pred
+
+        self.x = x_pred + self.alpha * res
+        self.v = v_pred + (self.beta / dt) * res
+
+        if len(self.history) == self.window_size and dt > 1e-5:
+            if not self.is_angle:
+                v_5pt = (
+                    2.0 * self.history[4]
+                    + self.history[3]
+                    - self.history[1]
+                    - 2.0 * self.history[0]
+                ) / (10.0 * dt)
+                self.v = 0.5 * self.v + 0.5 * v_5pt
+
+        return self.x, self.v
+
+
 class GtMocapOdomNode(Node):
 
     def __init__(self):
@@ -46,6 +94,8 @@ class GtMocapOdomNode(Node):
         self.declare_parameter('world_frame', 'world')
         self.declare_parameter('child_frame', 'bebop_gt')
         self.declare_parameter('use_full_3d_rotation', False)
+        self.declare_parameter('use_alpha_beta', True)
+        self.declare_parameter('ab_window_size', 5)
 
         mocap_topic = self.get_parameter('mocap_topic').get_parameter_value().string_value
         gt_odom_topic = self.get_parameter('gt_odom_topic').get_parameter_value().string_value
@@ -53,10 +103,13 @@ class GtMocapOdomNode(Node):
         self.world_frame = self.get_parameter('world_frame').get_parameter_value().string_value
         self.child_frame = self.get_parameter('child_frame').get_parameter_value().string_value
         self.use_full_3d = self.get_parameter('use_full_3d_rotation').get_parameter_value().bool_value
+        self.use_ab = self.get_parameter('use_alpha_beta').get_parameter_value().bool_value
+        ab_window_size = self.get_parameter('ab_window_size').get_parameter_value().integer_value
 
         self.get_logger().info(f"Initializing GT Mocap Odom Node at {rate_hz} Hz...")
         self.get_logger().info(f"Subscribing to: {mocap_topic} with BEST_EFFORT QoS")
         self.get_logger().info(f"Publishing GT Odometry to: {gt_odom_topic}")
+        self.get_logger().info(f"Alpha-Beta Filter enabled: {self.use_ab} (Window size: {ab_window_size})")
 
         mocap_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -73,6 +126,13 @@ class GtMocapOdomNode(Node):
         self.prev_roll = None
         self.prev_pitch = None
         self.prev_yaw = None
+
+        self.filter_x = AlphaBeta1D(is_angle=False, window_size=ab_window_size)
+        self.filter_y = AlphaBeta1D(is_angle=False, window_size=ab_window_size)
+        self.filter_z = AlphaBeta1D(is_angle=False, window_size=ab_window_size)
+        self.filter_roll = AlphaBeta1D(is_angle=True, window_size=ab_window_size)
+        self.filter_pitch = AlphaBeta1D(is_angle=True, window_size=ab_window_size)
+        self.filter_yaw = AlphaBeta1D(is_angle=True, window_size=ab_window_size)
 
         self.sub_mocap = self.create_subscription(
             PoseStamped,
@@ -109,64 +169,69 @@ class GtMocapOdomNode(Node):
 
         roll_raw, pitch_raw, yaw_raw = quat_to_euler(orient)
 
-        x_f = pos.x
-        y_f = pos.y
-        z_f = pos.z
-        roll_f = roll_raw
-        pitch_f = pitch_raw
-        yaw_f = yaw_raw
+        if self.use_ab:
+            x_f, dx_w = self.filter_x.update(pos.x, dt)
+            y_f, dy_w = self.filter_y.update(pos.y, dt)
+            z_f, dz_w = self.filter_z.update(pos.z, dt)
 
-        if self.prev_x is None:
-            vx_body = 0.0
-            vy_body = 0.0
-            vz_body = 0.0
+            roll_f, droll_w = self.filter_roll.update(roll_raw, dt)
+            pitch_f, dpitch_w = self.filter_pitch.update(pitch_raw, dt)
+            yaw_f, dyaw_w = self.filter_yaw.update(yaw_raw, dt)
+        else:
+            x_f = pos.x
+            y_f = pos.y
+            z_f = pos.z
+            roll_f = roll_raw
+            pitch_f = pitch_raw
+            yaw_f = yaw_raw
+
+            if self.prev_x is None:
+                dx_w, dy_w, dz_w = 0.0, 0.0, 0.0
+                droll_w, dpitch_w, dyaw_w = 0.0, 0.0, 0.0
+            else:
+                dx_w = (x_f - self.prev_x) / dt
+                dy_w = (y_f - self.prev_y) / dt
+                dz_w = (z_f - self.prev_z) / dt
+
+                droll_w = angle_diff(roll_f, self.prev_roll) / dt
+                dpitch_w = angle_diff(pitch_f, self.prev_pitch) / dt
+                dyaw_w = angle_diff(yaw_f, self.prev_yaw) / dt
+
+        if self.use_full_3d:
+            cr, sr = math.cos(roll_f), math.sin(roll_f)
+            cp, sp = math.cos(pitch_f), math.sin(pitch_f)
+            cy, sy = math.cos(yaw_f), math.sin(yaw_f)
+
+            r11 = cy * cp
+            r12 = cy * sp * sr - sy * cr
+            r13 = cy * sp * cr + sy * sr
+
+            r21 = sy * cp
+            r22 = sy * sp * sr + cy * cr
+            r23 = sy * sp * cr - cy * sr
+
+            r31 = -sp
+            r32 = cp * sr
+            r33 = cp * cr
+
+            vx_body = r11 * dx_w + r21 * dy_w + r31 * dz_w
+            vy_body = r12 * dx_w + r22 * dy_w + r32 * dz_w
+            vz_body = r13 * dx_w + r23 * dy_w + r33 * dz_w
+
+            wx_body = droll_w
+            wy_body = dpitch_w
+            wz_body = dyaw_w
+        else:
+            cy = math.cos(yaw_f)
+            sy = math.sin(yaw_f)
+
+            vx_body = cy * dx_w + sy * dy_w
+            vy_body = -sy * dx_w + cy * dy_w
+            vz_body = dz_w
+
             wx_body = 0.0
             wy_body = 0.0
-            wz_body = 0.0
-        else:
-            dx_w = (x_f - self.prev_x) / dt
-            dy_w = (y_f - self.prev_y) / dt
-            dz_w = (z_f - self.prev_z) / dt
-
-            droll_w = angle_diff(roll_f, self.prev_roll) / dt
-            dpitch_w = angle_diff(pitch_f, self.prev_pitch) / dt
-            dyaw_w = angle_diff(yaw_f, self.prev_yaw) / dt
-
-            if self.use_full_3d:
-                cr, sr = math.cos(roll_f), math.sin(roll_f)
-                cp, sp = math.cos(pitch_f), math.sin(pitch_f)
-                cy, sy = math.cos(yaw_f), math.sin(yaw_f)
-
-                r11 = cy * cp
-                r12 = cy * sp * sr - sy * cr
-                r13 = cy * sp * cr + sy * sr
-
-                r21 = sy * cp
-                r22 = sy * sp * sr + cy * cr
-                r23 = sy * sp * cr - cy * sr
-
-                r31 = -sp
-                r32 = cp * sr
-                r33 = cp * cr
-
-                vx_body = r11 * dx_w + r21 * dy_w + r31 * dz_w
-                vy_body = r12 * dx_w + r22 * dy_w + r32 * dz_w
-                vz_body = r13 * dx_w + r23 * dy_w + r33 * dz_w
-
-                wx_body = droll_w
-                wy_body = dpitch_w
-                wz_body = dyaw_w
-            else:
-                cy = math.cos(yaw_f)
-                sy = math.sin(yaw_f)
-
-                vx_body = cy * dx_w + sy * dy_w
-                vy_body = -sy * dx_w + cy * dy_w
-                vz_body = dz_w
-
-                wx_body = 0.0
-                wy_body = 0.0
-                wz_body = dyaw_w
+            wz_body = dyaw_w
 
         self.prev_x = x_f
         self.prev_y = y_f
