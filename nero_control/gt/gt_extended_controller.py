@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
-Ground Truth Cascade Controller for Bebop drone.
-Adapted to use Ground Truth Odometry (/bebop/gt_fullodom) from OptiTrack VRPN Mocap.
+Ground Truth Inverse-Dynamics Controller for Bebop drone.
+Uses Ground Truth Odometry (/bebop/gt_fullodom) from OptiTrack VRPN Mocap.
+
+Control law (inverse dynamics / computed acceleration, tanh-saturated PD):
+
+    eta_tilde     = eta_d - eta
+    eta_dot_tilde = eta_dot_d - eta_dot
+
+    alpha = eta_ddot_d + Ksd * tanh(Kd * eta_dot_tilde) + Ksp * tanh(Kp * eta_tilde)
+
+    U = f1^-1 [ J^-1(psi) * alpha + f2 * nu ]
+
+    U saturated to [-1, 1]
 """
 
 import numpy as np
@@ -53,25 +64,14 @@ def jacobian_inv(psi: float) -> np.ndarray:
     ])
 
 
-def jacobian_dot(psi: float, psi_dot: float) -> np.ndarray:
-    c, s = np.cos(psi), np.sin(psi)
-    return psi_dot * np.array([
-        [-s, -c, 0.0, 0.0],
-        [ c, -s, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0],
-    ])
-
-
 def saturate(v: np.ndarray, vmax: np.ndarray) -> np.ndarray:
     return np.clip(v, -vmax, vmax)
 
 
-class GtCascadeController(Node):
+class GtInverseDynamicsController(Node):
 
     RATE_HZ: float = 15.0
 
-    # Identified OptiTrack parameters (system_identification_parameters_optitrack_4dof.json)
     f1 = np.array([
             [0.921527, 0.000000, 0.000000, 0.000000],
             [0.000000, 1.053286, 0.000000, 0.000000],
@@ -84,29 +84,27 @@ class GtCascadeController(Node):
             [0.000000, 0.000000, 1.975836, 0.000000],
             [0.000000, 0.000000, 0.000000, 6.101834],
         ])
-    opt = 1
-    if opt == 1:  # trajectory gains (extra strong Y tracking, ultra-smooth U)
-        KP  = np.diag([0.114000, 0.115000, 1.000000, 1.039000])
-        KSP = np.diag([0.200000, 0.200000, 0.100000, 0.108000])
-        KD  = np.diag([1.003000, 4.990000, 0.500000, 0.301000])
-        KSD = np.diag([0.003000, 2.000000, 0.000000, 0.005000])
+
+    KP  = np.diag([0.114000, 0.115000, 1.000000, 1.039000])
+    KSP = np.diag([0.200000, 0.200000, 0.100000, 0.108000])
+    KD  = np.diag([1.003000, 4.990000, 0.500000, 0.301000])
+    KSD = np.diag([0.003000, 2.000000, 0.000000, 0.005000])
 
     U_MAX = np.ones(4)
 
     def __init__(self):
-        super().__init__('gt_cascade_controller')
+        super().__init__('gt_inverse_dynamics_controller')
 
         self.Ts = 1.0 / self.RATE_HZ
+
+        self.f1_inv = np.linalg.inv(self.f1)
 
         self.eta = np.zeros(4)
         self.nu  = np.zeros(4)
 
-        self.eta_d   = np.zeros(4)
-        self.nu_d    = np.zeros(4)
-        self.alpha_d = np.zeros(4)
-
-        self.X_dot_ref_prev = np.zeros(4)
-        self.X_ddot_ref_filt = np.zeros(4)
+        self.eta_d   = np.zeros(4)   # desired pose
+        self.nu_d    = np.zeros(4)   # desired inertial velocity  (eta_dot_d)
+        self.alpha_d = np.zeros(4)   # desired inertial accel     (eta_ddot_d)
 
         self.is_flying = False
 
@@ -114,12 +112,8 @@ class GtCascadeController(Node):
         self.ref_received  = False
 
         # Safety cube limits (m)
-        self.SAFE_XY = 1.5   # ±1.5 m in X and Y
-        self.SAFE_Z_MAX = 2.0  # max altitude 2 m
-
-        # First-reference initialization guard
-        self.first_ref_initialized = False  # True once X_dot_ref_prev seeded
-        self.ref_last_time = None           # ROS time of last ref received
+        self.SAFE_XY = 1.5     
+        self.SAFE_Z_MAX = 2.0   
 
         # Subscribes to Ground Truth Odometry
         self.sub_odom = self.create_subscription(
@@ -132,7 +126,8 @@ class GtCascadeController(Node):
         self.pub_cmd = self.create_publisher(Twist, '/safe_bebop/cmd_vel', 10)
 
         self.timer = self.create_timer(self.Ts, self.control_loop)
-        self.get_logger().info("GT Cascade Controller initialized. Subscribed to /bebop/gt_fullodom")
+        self.get_logger().info(
+            "GT Inverse-Dynamics Controller initialized. Subscribed to /bebop/gt_fullodom")
 
     def odom_callback(self, msg: Odometry):
         p = msg.pose.pose.position
@@ -156,20 +151,6 @@ class GtCascadeController(Node):
         if len(msg.data) < 12:
             return
 
-        now = self.get_clock().now()
-
-        # If it's been more than 1 s since the last reference, treat the
-        # next one as the very first so we re-seed X_dot_ref_prev and avoid
-        # a derivative spike.
-        if self.ref_last_time is not None:
-            dt_since = (now - self.ref_last_time).nanoseconds * 1e-9
-            if dt_since > 1.0:
-                self.first_ref_initialized = False
-                self.get_logger().warn(
-                    f"Ref gap {dt_since:.2f}s > 1s — re-initializing first-ref guard.")
-
-        self.ref_last_time = now
-
         self.eta_d   = np.array(msg.data[0:4])
         self.nu_d    = np.array(msg.data[4:8])
         self.alpha_d = np.array(msg.data[8:12])
@@ -182,7 +163,6 @@ class GtCascadeController(Node):
     def control_loop(self):
         if not self.is_flying:
             self._publish_zero()
-            self._reset_memory()
             return
 
         if not self.odom_received or not self.ref_received:
@@ -192,9 +172,8 @@ class GtCascadeController(Node):
         eta = self.eta.copy()
         nu  = self.nu.copy()
         psi = eta[3]
-        r   = nu[3]
 
-        # ── Safety cube ──────────────────────────────────────────────────
+        # -- Safety cube ----------------------------------------------------
         # If the drone is outside the allowed volume, kill all commands.
         x_out = abs(eta[0]) > self.SAFE_XY
         y_out = abs(eta[1]) > self.SAFE_XY
@@ -205,48 +184,26 @@ class GtCascadeController(Node):
                 f"outside safe cube. Sending zero cmd.",
                 throttle_duration_sec=0.5)
             self._publish_zero()
-            self._reset_memory()
             return
-        # ─────────────────────────────────────────────────────────────────
+        # ---------------------------------------------------------------------
 
-        J        = jacobian(psi)
-        J_dot    = jacobian_dot(psi, r)
-        J_inv    = jacobian_inv(psi)
-        F1       = J @ self.f1
-        F2       = J @ self.f2 @ J_inv - J_dot @ J_inv
-        F1_inv   = np.linalg.inv(F1)
+        # Kinematics and tracking errors
+        J     = jacobian(psi)
+        J_inv = jacobian_inv(psi)
 
-        X_dot = J @ nu
+        eta_dot = J @ nu
 
-        # Force Yaw and Z references to current measured values (no tracking)
-        self.eta_d[3] = eta[3]  # yaw ref = current yaw
-        self.eta_d[2] = eta[2]  # z   ref = current z
-        X_tilde      = self.eta_d - eta
-        X_tilde[3]   = wrap_angle(X_tilde[3])
+        eta_tilde = self.eta_d - eta
+        eta_tilde[3] = wrap_angle(eta_tilde[3])*0.0
 
-        X_dot_ref = self.nu_d + self.KSP @ np.tanh(self.KP @ X_tilde)
+        eta_dot_tilde = self.nu_d - eta_dot
 
-        # ── First-reference guard ─────────────────────────────────────────
-        # On the very first valid iteration, seed X_dot_ref_prev so that
-        # X_ddot_ref_raw = 0 and there is no acceleration spike.
-        if not self.first_ref_initialized:
-            self.X_dot_ref_prev = X_dot_ref.copy()
-            self.X_ddot_ref_filt = np.zeros(4)
-            self.first_ref_initialized = True
-            self.get_logger().info("First reference received — seeding derivative memory.")
-        # ─────────────────────────────────────────────────────────────────
+        # Virtual acceleration and inverse-dynamics control command
+        alpha = (self.alpha_d
+                 + self.KSD @ np.tanh(self.KD @ eta_dot_tilde)
+                 + self.KSP @ np.tanh(self.KP @ eta_tilde))
 
-        X_dot_tilde    = X_dot_ref - X_dot
-        X_ddot_ref_raw = (X_dot_ref - self.X_dot_ref_prev) / self.Ts
-        self.X_dot_ref_prev = X_dot_ref.copy()
-        self.X_ddot_ref_filt = 0.7 * self.X_ddot_ref_filt + 0.3 * X_ddot_ref_raw
-
-        Ud = F1_inv @ (
-            self.alpha_d
-            + self.X_ddot_ref_filt
-            + self.KSD @ np.tanh(self.KD @ X_dot_tilde)
-            + F2 @ X_dot
-        )
+        Ud = self.f1_inv @ (J_inv @ alpha + self.f2 @ nu)
 
         U_body = saturate(Ud, self.U_MAX)
 
@@ -265,15 +222,10 @@ class GtCascadeController(Node):
     def _publish_zero(self):
         self.pub_cmd.publish(Twist())
 
-    def _reset_memory(self):
-        self.X_dot_ref_prev = np.zeros(4)
-        self.X_ddot_ref_filt = np.zeros(4)
-        self.first_ref_initialized = False
-
 
 def main(args=None):
     rclpy.init(args=args)
-    node = GtCascadeController()
+    node = GtInverseDynamicsController()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

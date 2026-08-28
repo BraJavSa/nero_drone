@@ -108,6 +108,8 @@ install(PROGRAMS
   nero_control/gt/gt_realtime_graphical.py
   nero_control/gt/gt_position_ref.py
   nero_control/gt/gt_trajectory_ref.py
+  nero_control/gt/first_order_controller.py
+  nero_control/gt/second_order_controller.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

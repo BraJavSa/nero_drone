@@ -1,41 +1,41 @@
-// Safety watchdog that halts the drone if reference or odometry streams are lost.
+// Safety watchdog that halts the drone if reference or odometry streams are
+// lost.
 
-
-#include <rclcpp/rclcpp.hpp>
+#include <chrono>
 #include <geometry_msgs/msg/twist.hpp>
+#include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
-#include <chrono>
 
 using namespace std::chrono_literals;
 
 class SafetyWatchdog : public rclcpp::Node {
 public:
   SafetyWatchdog()
-  : Node("safety_watchdog"),
-    last_cmd_time_(this->now()),
-    last_ref_time_(this->now()),
-    timeout_(0.4),
-    stopped_(false),
-    flying_(false)
-  {
+      : Node("safety_watchdog"), last_cmd_time_(this->now()),
+        last_ref_time_(this->now()), timeout_(0.4), stopped_(false),
+        flying_(false) {
     sub_cmd_ = this->create_subscription<geometry_msgs::msg::Twist>(
-      "/safe_bebop/cmd_vel", 10,
-      std::bind(&SafetyWatchdog::cmdCallback, this, std::placeholders::_1));
+        "/safe_bebop/cmd_vel", 10,
+        std::bind(&SafetyWatchdog::cmdCallback, this, std::placeholders::_1));
 
     sub_ref_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-      "/bebop/ref_vec", 10,
-      std::bind(&SafetyWatchdog::refCallback, this, std::placeholders::_1));
+        "/bebop/ref_vec", 10,
+        std::bind(&SafetyWatchdog::refCallback, this, std::placeholders::_1));
 
     sub_is_flying_ = this->create_subscription<std_msgs::msg::Bool>(
-      "/bebop/is_flying", 10,
-      std::bind(&SafetyWatchdog::isFlyingCallback, this, std::placeholders::_1));
+        "/bebop/is_flying", 10,
+        std::bind(&SafetyWatchdog::isFlyingCallback, this,
+                  std::placeholders::_1));
 
-    cmd_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/bebop/cmd_vel", 10);
+    cmd_pub_ =
+        this->create_publisher<geometry_msgs::msg::Twist>("/bebop/cmd_vel", 10);
 
-    timer_ = this->create_wall_timer(50ms, std::bind(&SafetyWatchdog::checkTimeout, this));
+    timer_ = this->create_wall_timer(
+        50ms, std::bind(&SafetyWatchdog::checkTimeout, this));
 
-    RCLCPP_INFO(this->get_logger(), "SafetyWatchdog started (timeout = %.2f s).", timeout_);
+    RCLCPP_INFO(this->get_logger(),
+                "SafetyWatchdog started (timeout = %.2f s).", timeout_);
   }
 
 private:
@@ -47,8 +47,7 @@ private:
       last_cmd_time_ = this->now();
       last_ref_time_ = this->now();
       stopped_ = false;
-    }
-    else if (!flying_ && prev) {
+    } else if (!flying_ && prev) {
       RCLCPP_INFO(this->get_logger(), "is_flying FALSE — watchdog inactive.");
       stopped_ = false;
       publishZero();
@@ -56,7 +55,8 @@ private:
   }
 
   void cmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-    if (!flying_) return;
+    if (!flying_)
+      return;
     last_cmd_time_ = this->now();
     if (!stopped_) {
       cmd_pub_->publish(*msg);
@@ -64,7 +64,8 @@ private:
   }
 
   void refCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
-    if (!flying_) return;
+    if (!flying_)
+      return;
     if (msg->data.empty()) {
       RCLCPP_WARN(this->get_logger(), "Empty reference received — ignored.");
       return;
@@ -73,7 +74,8 @@ private:
   }
 
   void checkTimeout() {
-    if (!flying_) return;
+    if (!flying_)
+      return;
     double dt_cmd = (this->now() - last_cmd_time_).seconds();
     double dt_ref = (this->now() - last_ref_time_).seconds();
     bool cmd_ok = dt_cmd <= timeout_;
@@ -94,7 +96,8 @@ private:
     }
     if (stopped_ && !must_stop) {
       stopped_ = false;
-      RCLCPP_INFO(this->get_logger(), "Both flows restored — exiting STOP MODE.");
+      RCLCPP_INFO(this->get_logger(),
+                  "Both flows restored — exiting STOP MODE.");
     }
   }
 
