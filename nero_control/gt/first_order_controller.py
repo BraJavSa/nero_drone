@@ -170,7 +170,7 @@ class GtCompensadorController(Node):
         cmd = Twist()
         cmd.linear.x = float(U_body[0])
         cmd.linear.y = float(U_body[1])
-        cmd.linear.z = float(U_body[2])*0
+        cmd.linear.z = float(U_body[2])
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
         cmd.angular.z = float(U_body[3])
