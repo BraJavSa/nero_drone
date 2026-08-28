@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""
-Ground Truth Inverse-Dynamics Controller for Bebop drone.
-Uses Ground Truth Odometry (/bebop/gt_fullodom) from OptiTrack VRPN Mocap.
 
-Control law (inverse dynamics / computed acceleration, tanh-saturated PD):
-
-    eta_tilde     = eta_d - eta
-    eta_dot_tilde = eta_dot_d - eta_dot
-
-    alpha = eta_ddot_d + Ksd * tanh(Kd * eta_dot_tilde) + Ksp * tanh(Kp * eta_tilde)
-
-    U = f1^-1 [ J^-1(psi) * alpha + f2 * nu ]
-
-    U saturated to [-1, 1]
-"""
 
 import numpy as np
 import rclpy
@@ -75,20 +61,30 @@ class GtInverseDynamicsController(Node):
     f1 = np.array([
             [0.921527, 0.000000, 0.000000, 0.000000],
             [0.000000, 1.053286, 0.000000, 0.000000],
-            [0.000000, 0.000000, 4.173221, 0.000000],
+            [0.000000, 0.000000, 3.8086879470003603, 0.000000],
             [0.000000, 0.000000, 0.000000, 8.772786],
         ])
     f2 = np.array([
             [0.247044, 0.000000, 0.000000, 0.000000],
             [0.000000, 0.395160, 0.000000, 0.000000],
-            [0.000000, 0.000000, 1.975836, 0.000000],
+            [0.000000, 0.000000, 3.7414469817348253, 0.000000],
             [0.000000, 0.000000, 0.000000, 6.101834],
         ])
 
-    KP  = np.diag([2.981000, 2.106000, 6.953000, 10.743000])
-    KSP = np.diag([0.313000, 0.291000, 0.203000, 0.520000])
-    KD  = np.diag([1.089000, 2.722000, 2.922000, 2.045000])
-    KSD = np.diag([1.415000, 0.523000, 1.094000, 0.936000])
+    use_safe_gains = False
+
+    if use_safe_gains:
+        KP  = np.diag([2.981000, 2.106000, 6.953000, 10.743000])
+        KSP = np.diag([0.313000, 0.291000, 0.203000, 0.520000])
+        KD  = np.diag([1.089000, 2.722000, 2.922000, 2.045000])
+        KSD = np.diag([1.415000, 0.523000, 1.094000, 0.936000])
+
+    
+    else:
+        KP  = np.diag([5.0, 4.692, 3.034, 8.091])
+        KSP = np.diag([0.763, 0.675, 0.525, 0.735])
+        KD  = np.diag([2.636, 3.618, 3.2, 2.067])
+        KSD = np.diag([1.2, 0.844, 0.729, 1.344])
 
     U_MAX = np.ones(4)
 
@@ -194,7 +190,7 @@ class GtInverseDynamicsController(Node):
         eta_dot = J @ nu
 
         eta_tilde = self.eta_d - eta
-        eta_tilde[3] = wrap_angle(eta_tilde[3])*0.0
+        eta_tilde[3] = wrap_angle(eta_tilde[3])
 
         eta_dot_tilde = self.nu_d - eta_dot
 
@@ -213,10 +209,10 @@ class GtInverseDynamicsController(Node):
         cmd = Twist()
         cmd.linear.x  = float(U_body[0])
         cmd.linear.y  = float(U_body[1])
-        cmd.linear.z  = 0.0  # Z fixed to zero (ref = current Z, no Z tracking)
+        cmd.linear.z  = float(U_body[2])*0.0 
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
-        cmd.angular.z = 0.0  # Yaw fixed to zero (ref = current Yaw, no yaw tracking)
+        cmd.angular.z = float(U_body[3]) 
         self.pub_cmd.publish(cmd)
 
     def _publish_zero(self):

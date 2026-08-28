@@ -1,8 +1,0 @@
-# Customized gains for extended_controller.py
-# Max velocities [Vx, Vy, Vz, Vyaw]: [0.05, 0.05, 0.05, 0.1]
-# Total ISE cost: 329.857024
-
-KP  = np.diag([0.114000, 0.115000, 1.000000, 1.039000])
-KSP = np.diag([0.200000, 0.200000, 0.100000, 0.108000])
-KD  = np.diag([1.003000, 4.990000, 0.500000, 0.301000])
-KSD = np.diag([0.003000, 2.000000, 0.000000, 0.005000])

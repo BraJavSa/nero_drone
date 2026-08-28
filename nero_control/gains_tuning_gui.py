@@ -64,17 +64,19 @@ CTRL_DT = 1.0 / 15.0        # 15 Hz execution
 NU_MAX = np.array([0.9, 0.9, 0.8, 0.8])
 U_MAX = np.ones(4)
 
-HOLD_TIME    = 25.0
-L            = 1.5
-SIM_DURATION = 100.0
+HOLD_TIME    = 15.0
+L            = 1.2
+SIM_DURATION = 90.0
 
 POINTS = np.array([
     [0.0, 0.0, 1.8],
     [-L/2, -L/2, 1.6],
-    [L/2, -L/2, 1.8],
-    [-L/2, L/2, 1.5],
+    [L, L, 1.7],
+    [0, L, 1.4],
+    [-L, 0, 1.9],
+    [0, 0, 1.5],
 ])
-YAWS = np.deg2rad([45.0, 45.0, -45.0, -45.0])
+YAWS = np.deg2rad([0.0, 35.0, -35.0, -60.0, 300.0, 190.0])
 
 CONTROLLER_KEYS = {
     1: "gt_extended_controller",

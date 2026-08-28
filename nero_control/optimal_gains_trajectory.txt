@@ -1,9 +1,0 @@
-# Optimal gains for trajectory tracking
-
-    KP  = np.diag([2.500000, 2.500000, 3.045698, 10.000000])
-    KSP = np.diag([0.600000, 0.600000, 0.500000, 0.060002])
-    KD  = np.diag([4.000000, 4.000000, 1.354406, 0.300000])
-    KSD = np.diag([1.000000, 0.753363, 0.066052, 0.301276])
-
-Final cost: 0.49493890
-RMS position x=0.36 cm, y=0.56 cm, z=0.48 cm, yaw=9.82 deg

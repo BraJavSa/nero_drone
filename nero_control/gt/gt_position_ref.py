@@ -19,25 +19,28 @@ class GtRefPublisher(Node):
         self.pub_ref = self.create_publisher(Float64MultiArray, "/bebop/ref_vec", 10)
         self.tf_br = TransformBroadcaster(self)
         self.dt = 1.0 / 15.0
-        self.hold_time = 10.0
+        self.hold_time = 15.0
         self.start_time = time.time()
         self.t0 = time.time()
         self.idx = 0
-        L = 1.0
+        L = 1.2
+
         self.points = np.array([
-            [0.0, 0.0, 1.5],
-            [-L, -L, 1.5],
-            [L, -L, 1.5],
-            [-L, L, 1.5],
-            [L, L, 1.5]
+            [0.0, 0.0, 1.8],
+            [-L/2, -L/2, 1.6],
+            [L, L, 1.7],
+            [0, L, 1.4],
+            [-L, 0, 1.9],
+            [0, 0, 1.5],
         ])
-        self.yaws = np.deg2rad([0 ,0, 0, 0, 0])
+        self.yaws = np.deg2rad([0.0, 35.0, -35.0, -60.0, 300.0, 190.0])
+        
         self.timer = self.create_timer(self.dt, self.timer_cb)
         self.get_logger().info("Publishing GT reference setpoints in 'world' frame (Z in [1.5m, 2.3m]).")
 
     def timer_cb(self):
         total_time = time.time() - self.start_time
-        if total_time >= 120.0:
+        if total_time >= 90.0:
             self.get_logger().info("Experiment completed after 120 seconds. Shutting down position reference publisher.")
             raise SystemExit
 
