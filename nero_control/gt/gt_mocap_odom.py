@@ -169,22 +169,22 @@ class GtMocapOdomNode(Node):
 
         roll_raw, pitch_raw, yaw_raw = quat_to_euler(orient)
 
+        x_f = pos.x
+        y_f = pos.y
+        z_f = pos.z
+        roll_f = roll_raw
+        pitch_f = pitch_raw
+        yaw_f = yaw_raw
+
         if self.use_ab:
-            x_f, dx_w = self.filter_x.update(pos.x, dt)
-            y_f, dy_w = self.filter_y.update(pos.y, dt)
-            z_f, dz_w = self.filter_z.update(pos.z, dt)
+            _, dx_w = self.filter_x.update(pos.x, dt)
+            _, dy_w = self.filter_y.update(pos.y, dt)
+            _, dz_w = self.filter_z.update(pos.z, dt)
 
-            roll_f, droll_w = self.filter_roll.update(roll_raw, dt)
-            pitch_f, dpitch_w = self.filter_pitch.update(pitch_raw, dt)
-            yaw_f, dyaw_w = self.filter_yaw.update(yaw_raw, dt)
+            _, droll_w = self.filter_roll.update(roll_raw, dt)
+            _, dpitch_w = self.filter_pitch.update(pitch_raw, dt)
+            _, dyaw_w = self.filter_yaw.update(yaw_raw, dt)
         else:
-            x_f = pos.x
-            y_f = pos.y
-            z_f = pos.z
-            roll_f = roll_raw
-            pitch_f = pitch_raw
-            yaw_f = yaw_raw
-
             if self.prev_x is None:
                 dx_w, dy_w, dz_w = 0.0, 0.0, 0.0
                 droll_w, dpitch_w, dyaw_w = 0.0, 0.0, 0.0
