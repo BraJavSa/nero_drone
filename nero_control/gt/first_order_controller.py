@@ -49,10 +49,10 @@ class GtCompensadorController(Node):
     f1 = np.diag([0.921527, 1.053286, 3.8086879470003603, 8.772786])
     f2 = np.diag([0.247044, 0.395160, 3.7414469817348253, 6.101834])
 
-    KSP = np.diag([2.0, 2.0, 3.0, 1.5])
-    KSD = np.diag([2.0, 2.0, 1.8, 5.0])
-    KP  = np.diag([1.0, 1.0, 1.0, 1.5])
-    KD  = np.diag([1.0, 1.0, 1.0, 1.0])
+    KP  = np.diag([3.880000, 3.416000, 8.000000, 12.533000])
+    KSP = np.diag([0.203000, 0.203000, 0.200000, 0.301000])
+    KD  = np.diag([8.835000, 10.000000, 2.376000, 1.962000])
+    KSD = np.diag([2.000000, 2.000000, 0.985000, 0.800000])
 
     U_MAX = np.ones(4)
 
@@ -169,7 +169,7 @@ class GtCompensadorController(Node):
         cmd = Twist()
         cmd.linear.x = float(U_body[0])
         cmd.linear.y = float(U_body[1])
-        cmd.linear.z = float(U_body[2])
+        cmd.linear.z = float(U_body[2])*0
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
         cmd.angular.z = float(U_body[3])

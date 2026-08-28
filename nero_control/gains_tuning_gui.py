@@ -350,9 +350,10 @@ def simulate(params, opt=2, delays=DELAYS_IDEAL, nu_max=NU_MAX, return_history=F
 
 def cost(params, opt=2, nu_max=NU_MAX, delays=DELAYS_IDEAL):
     """
-    Cost function for auto-optimization:
-    1. Maximum Body Velocity Constraint Penalty (Strict).
-    2. Position Tracking Error (ISE).
+    Hierarchical Multi-Objective Cost Function:
+    Priority 1: Enforce strict Max Body Velocity limits (heavy penalty for X, Y, Z).
+    Priority 2: Position Tracking Convergence (Weights: XY > Yaw > Z).
+    Priority 3: Zero Body Velocity Maintenance at setpoints (nu -> 0 when reference is held constant).
     """
     KP, KSP, KD, KSD = unpack(params)
 
@@ -366,25 +367,34 @@ def cost(params, opt=2, nu_max=NU_MAX, delays=DELAYS_IDEAL):
     if not np.all(np.isfinite(errors)):
         return 1e9
 
-    # 1. Penalty for exceeding max body velocity constraint (nu_max)
+    # 1. PRIORITY 1: Strict Body Velocity Limit Constraints (Heavy penalty for X, Y, Z)
+    # Excess velocity beyond limit: [Vx, Vy, Vz, Vyaw]
+    w_vel_excess = np.array([20000.0, 20000.0, 20000.0, 10000.0])
     vel_excess = np.maximum(0.0, np.abs(nu_hist) - nu_max)
-    p1_vel_max_penalty = np.sum(vel_excess ** 2) * 10000.0
+    p1_vel_max_penalty = np.sum((vel_excess ** 2) * w_vel_excess)
 
+    # Penalty for KSP gains exceeding nu_max limits
+    w_ksp_excess = np.array([10000.0, 10000.0, 10000.0, 5000.0])
     ksp_diag = np.diag(KSP)
     ksp_excess = np.maximum(0.0, ksp_diag - nu_max)
-    p1_ksp_penalty = np.sum(ksp_excess ** 2) * 5000.0
+    p1_ksp_penalty = np.sum((ksp_excess ** 2) * w_ksp_excess)
 
-    # 2. Position tracking error (ISE)
+    # 2. PRIORITY 2: Position Tracking Error (Weights: XY > Yaw > Z)
+    # Order: [X, Y, Z, Yaw] -> XY (4.0) > Yaw (2.5) > Z (1.0)
+    w_pos = np.array([4.0, 4.0, 1.0, 2.5])
+
     N = len(errors)
-    w_pos = np.array([1.0, 1.0, 2.5, 2.5])
-
     ise_pos = np.mean((errors ** 2) * w_pos)
     n_trans = N // 4
     transient_penalty = np.mean((errors[:n_trans] ** 2) * w_pos) * 0.4
     ss_penalty = np.mean((errors[-n_trans:] ** 2) * w_pos) * 1.5
     p2_pos_error_cost = (ise_pos + transient_penalty + ss_penalty) * 100.0
 
-    return p1_vel_max_penalty + p1_ksp_penalty + p2_pos_error_cost
+    # 3. PRIORITY 3: Stationary Body Velocity Regulation (nu -> 0 when reference is constant)
+    w_stat_vel = np.array([2.0, 2.0, 0.8, 1.5])
+    p3_stationary_vel_cost = np.mean((nu_hist ** 2) * w_stat_vel) * 100.0
+
+    return p1_vel_max_penalty + p1_ksp_penalty + p2_pos_error_cost + p3_stationary_vel_cost
 
 
 # Bounds for KP, KSP, KD, KSD

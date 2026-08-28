@@ -50,10 +50,10 @@ class GtInverseDynamicsNoJdotController(Node):
     f1 = np.diag([0.921527, 1.053286, 3.8086879470003603, 8.772786])
     f2 = np.diag([0.247044, 0.395160, 3.7414469817348253, 6.101834])
 
-    KSP = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
-    KSD = np.diag([1.200000, 1.200000, 1.000000, 1.000000])
-    KP  = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
-    KD  = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
+    KP  = np.diag([2.981000, 2.106000, 6.953000, 10.743000])
+    KSP = np.diag([0.313000, 0.291000, 0.203000, 0.520000])
+    KD  = np.diag([1.089000, 2.722000, 2.922000, 2.045000])
+    KSD = np.diag([1.415000, 0.523000, 1.094000, 0.936000])
 
     U_MAX = np.ones(4)
 
@@ -170,7 +170,7 @@ class GtInverseDynamicsNoJdotController(Node):
         cmd = Twist()
         cmd.linear.x  = float(U_body[0])
         cmd.linear.y  = float(U_body[1])
-        cmd.linear.z  = float(U_body[2])
+        cmd.linear.z  = float(U_body[2])*0
         cmd.angular.x = 0.0
         cmd.angular.y = 0.0
         cmd.angular.z = float(U_body[3])

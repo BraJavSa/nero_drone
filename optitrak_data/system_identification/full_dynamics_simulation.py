@@ -194,16 +194,33 @@ def rk4_step(x: np.ndarray, U: np.ndarray, dt: float) -> np.ndarray:
     return x_next
 
 
+OPTIMAL_GAINS_JSON = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "../../nero_control/gt/optimal_gains.json")
+)
+
+
+def load_optimal_gains_dict():
+    """Load optimal gains from JSON if available."""
+    if os.path.exists(OPTIMAL_GAINS_JSON):
+        try:
+            with open(OPTIMAL_GAINS_JSON, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
 # ─────────────────────── Controller Implementations ─────────────────────
 
 class GtExtendedController:
     """OPT = 1: Inverse Dynamics Controller (from gt_extended_controller.py)"""
     def __init__(self, dt: float = DT):
         self.Ts = dt
-        self.KP  = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
-        self.KSP = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
-        self.KD  = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
-        self.KSD = np.diag([1.200000, 1.200000, 1.000000, 1.000000])
+        g_dict = load_optimal_gains_dict().get("gt_extended_controller", {}).get("gains", {})
+        self.KP  = np.diag(g_dict.get("KP",  [2.981000, 2.106000, 6.953000, 10.743000]))
+        self.KSP = np.diag(g_dict.get("KSP", [0.313000, 0.291000, 0.203000,  0.520000]))
+        self.KD  = np.diag(g_dict.get("KD",  [1.089000, 2.722000, 2.922000,  2.045000]))
+        self.KSD = np.diag(g_dict.get("KSD", [1.415000, 0.523000, 1.094000,  0.936000]))
         self.f1_inv = np.diag(1.0 / F1_DIAG)
         self.f2 = np.diag(F2_DIAG)
         self.U_MAX = np.ones(4)
@@ -238,10 +255,11 @@ class FirstOrderController:
     """OPT = 2: First-Order Cascade Controller (from first_order_controller.py)"""
     def __init__(self, dt: float = DT):
         self.Ts = dt
-        self.KP  = np.diag([3.880000, 3.416000, 8.000000, 12.533000])
-        self.KSP = np.diag([0.203000, 0.203000, 0.200000, 0.301000])
-        self.KD  = np.diag([8.835000, 10.000000, 2.376000, 1.962000])
-        self.KSD = np.diag([2.000000, 2.000000, 0.985000, 0.800000])
+        g_dict = load_optimal_gains_dict().get("first_order_controller", {}).get("gains", {})
+        self.KP  = np.diag(g_dict.get("KP",  [3.880000, 3.416000, 8.000000, 12.533000]))
+        self.KSP = np.diag(g_dict.get("KSP", [0.203000, 0.203000, 0.200000,  0.301000]))
+        self.KD  = np.diag(g_dict.get("KD",  [8.835000, 10.000000, 2.376000, 1.962000]))
+        self.KSD = np.diag(g_dict.get("KSD", [2.000000, 2.000000, 0.985000,  0.800000]))
         self.f1 = np.diag(F1_DIAG)
         self.f2 = np.diag(F2_DIAG)
         self.U_MAX = np.ones(4)
@@ -276,10 +294,15 @@ class SecondOrderController:
     """OPT = 3: Second-Order Inverse Dynamics Controller (from second_order_controller.py)"""
     def __init__(self, dt: float = DT):
         self.Ts = dt
-        self.KP  = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
-        self.KSP = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
-        self.KD  = np.diag([1.000000, 1.000000, 1.000000, 1.000000])
-        self.KSD = np.diag([1.200000, 1.200000, 1.000000, 1.000000])
+        gains_data = load_optimal_gains_dict()
+        g_dict = gains_data.get("second_order_controller", {}).get("gains", {})
+        if not g_dict:
+            g_dict = gains_data.get("gt_extended_controller", {}).get("gains", {})
+
+        self.KP  = np.diag(g_dict.get("KP",  [2.981000, 2.106000, 6.953000, 10.743000]))
+        self.KSP = np.diag(g_dict.get("KSP", [0.313000, 0.291000, 0.203000,  0.520000]))
+        self.KD  = np.diag(g_dict.get("KD",  [1.089000, 2.722000, 2.922000,  2.045000]))
+        self.KSD = np.diag(g_dict.get("KSD", [1.415000, 0.523000, 1.094000,  0.936000]))
         self.f1_inv = np.diag(1.0 / F1_DIAG)
         self.f2 = np.diag(F2_DIAG)
         self.U_MAX = np.ones(4)
