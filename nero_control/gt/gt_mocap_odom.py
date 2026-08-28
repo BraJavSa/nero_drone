@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 
 import math
+from collections import deque
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
-from geometry_msgs.msg import PoseStamped, TransformStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped, Quaternion
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
-
-
-from collections import deque
 
 
 def quat_to_euler(q):
@@ -29,6 +27,22 @@ def quat_to_euler(q):
     return roll, pitch, yaw
 
 
+def euler_to_quat(roll, pitch, yaw):
+    cy = math.cos(yaw * 0.5)
+    sy = math.sin(yaw * 0.5)
+    cp = math.cos(pitch * 0.5)
+    sp = math.sin(pitch * 0.5)
+    cr = math.cos(roll * 0.5)
+    sr = math.sin(roll * 0.5)
+
+    q = Quaternion()
+    q.w = cr * cp * cy + sr * sp * sy
+    q.x = sr * cp * cy - cr * sp * sy
+    q.y = cr * sp * cy + sr * cp * sy
+    q.z = cr * cp * sy - sr * sp * cy
+    return q
+
+
 def angle_diff(a: float, b: float) -> float:
     d = a - b
     while d > math.pi:
@@ -40,20 +54,14 @@ def angle_diff(a: float, b: float) -> float:
 
 class AlphaBeta1D:
 
-    def __init__(self, is_angle: bool = False, window_size: int = 5):
+    def __init__(self, is_angle: bool = False, alpha: float = 0.63, beta: float = 0.37):
         self.is_angle = is_angle
-        self.window_size = window_size
-        self.history = deque(maxlen=window_size)
+        self.alpha = alpha
+        self.beta = beta
         self.x = None
         self.v = 0.0
 
-        n_float = float(window_size)
-        self.alpha = 2.0 * (2.0 * n_float - 1.0) / (n_float * (n_float + 1.0))
-        self.beta = 6.0 / (n_float * (n_float + 1.0))
-
     def update(self, z: float, dt: float):
-        self.history.append(z)
-
         if self.x is None:
             self.x = z
             self.v = 0.0
@@ -70,16 +78,6 @@ class AlphaBeta1D:
         self.x = x_pred + self.alpha * res
         self.v = v_pred + (self.beta / dt) * res
 
-        if len(self.history) == self.window_size and dt > 1e-5:
-            if not self.is_angle:
-                v_5pt = (
-                    2.0 * self.history[4]
-                    + self.history[3]
-                    - self.history[1]
-                    - 2.0 * self.history[0]
-                ) / (10.0 * dt)
-                self.v = 0.5 * self.v + 0.5 * v_5pt
-
         return self.x, self.v
 
 
@@ -95,7 +93,8 @@ class GtMocapOdomNode(Node):
         self.declare_parameter('child_frame', 'bebop_gt')
         self.declare_parameter('use_full_3d_rotation', False)
         self.declare_parameter('use_alpha_beta', True)
-        self.declare_parameter('ab_window_size', 5)
+        self.declare_parameter('ab_alpha', 0.63)
+        self.declare_parameter('ab_beta', 0.37)
 
         mocap_topic = self.get_parameter('mocap_topic').get_parameter_value().string_value
         gt_odom_topic = self.get_parameter('gt_odom_topic').get_parameter_value().string_value
@@ -104,12 +103,13 @@ class GtMocapOdomNode(Node):
         self.child_frame = self.get_parameter('child_frame').get_parameter_value().string_value
         self.use_full_3d = self.get_parameter('use_full_3d_rotation').get_parameter_value().bool_value
         self.use_ab = self.get_parameter('use_alpha_beta').get_parameter_value().bool_value
-        ab_window_size = self.get_parameter('ab_window_size').get_parameter_value().integer_value
+        ab_alpha = self.get_parameter('ab_alpha').get_parameter_value().double_value
+        ab_beta = self.get_parameter('ab_beta').get_parameter_value().double_value
 
         self.get_logger().info(f"Initializing GT Mocap Odom Node at {rate_hz} Hz...")
         self.get_logger().info(f"Subscribing to: {mocap_topic} with BEST_EFFORT QoS")
         self.get_logger().info(f"Publishing GT Odometry to: {gt_odom_topic}")
-        self.get_logger().info(f"Alpha-Beta Filter enabled: {self.use_ab} (Window size: {ab_window_size})")
+        self.get_logger().info(f"Alpha-Beta Filter enabled: {self.use_ab} (alpha={ab_alpha}, beta={ab_beta})")
 
         mocap_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -127,12 +127,12 @@ class GtMocapOdomNode(Node):
         self.prev_pitch = None
         self.prev_yaw = None
 
-        self.filter_x = AlphaBeta1D(is_angle=False, window_size=ab_window_size)
-        self.filter_y = AlphaBeta1D(is_angle=False, window_size=ab_window_size)
-        self.filter_z = AlphaBeta1D(is_angle=False, window_size=ab_window_size)
-        self.filter_roll = AlphaBeta1D(is_angle=True, window_size=ab_window_size)
-        self.filter_pitch = AlphaBeta1D(is_angle=True, window_size=ab_window_size)
-        self.filter_yaw = AlphaBeta1D(is_angle=True, window_size=ab_window_size)
+        self.filter_x = AlphaBeta1D(is_angle=False, alpha=ab_alpha, beta=ab_beta)
+        self.filter_y = AlphaBeta1D(is_angle=False, alpha=ab_alpha, beta=ab_beta)
+        self.filter_z = AlphaBeta1D(is_angle=False, alpha=ab_alpha, beta=ab_beta)
+        self.filter_roll = AlphaBeta1D(is_angle=True, alpha=ab_alpha, beta=ab_beta)
+        self.filter_pitch = AlphaBeta1D(is_angle=True, alpha=ab_alpha, beta=ab_beta)
+        self.filter_yaw = AlphaBeta1D(is_angle=True, alpha=ab_alpha, beta=ab_beta)
 
         self.sub_mocap = self.create_subscription(
             PoseStamped,
@@ -169,22 +169,25 @@ class GtMocapOdomNode(Node):
 
         roll_raw, pitch_raw, yaw_raw = quat_to_euler(orient)
 
-        x_f = pos.x
-        y_f = pos.y
-        z_f = pos.z
-        roll_f = roll_raw
-        pitch_f = pitch_raw
-        yaw_f = yaw_raw
-
         if self.use_ab:
-            _, dx_w = self.filter_x.update(pos.x, dt)
-            _, dy_w = self.filter_y.update(pos.y, dt)
-            _, dz_w = self.filter_z.update(pos.z, dt)
+            x_f, dx_w = self.filter_x.update(pos.x, dt)
+            y_f, dy_w = self.filter_y.update(pos.y, dt)
+            z_f, dz_w = self.filter_z.update(pos.z, dt)
 
-            _, droll_w = self.filter_roll.update(roll_raw, dt)
-            _, dpitch_w = self.filter_pitch.update(pitch_raw, dt)
-            _, dyaw_w = self.filter_yaw.update(yaw_raw, dt)
+            roll_f, droll_w = self.filter_roll.update(roll_raw, dt)
+            pitch_f, dpitch_w = self.filter_pitch.update(pitch_raw, dt)
+            yaw_f, dyaw_w = self.filter_yaw.update(yaw_raw, dt)
+
+            orient_f = euler_to_quat(roll_f, pitch_f, yaw_f)
         else:
+            x_f = pos.x
+            y_f = pos.y
+            z_f = pos.z
+            roll_f = roll_raw
+            pitch_f = pitch_raw
+            yaw_f = yaw_raw
+            orient_f = orient
+
             if self.prev_x is None:
                 dx_w, dy_w, dz_w = 0.0, 0.0, 0.0
                 droll_w, dpitch_w, dyaw_w = 0.0, 0.0, 0.0
@@ -248,7 +251,7 @@ class GtMocapOdomNode(Node):
         odom.pose.pose.position.x = x_f
         odom.pose.pose.position.y = y_f
         odom.pose.pose.position.z = z_f
-        odom.pose.pose.orientation = orient
+        odom.pose.pose.orientation = orient_f
 
         odom.pose.covariance = [0.0] * 36
         odom.pose.covariance[0] = 1e-5
@@ -282,7 +285,7 @@ class GtMocapOdomNode(Node):
         tf_msg.transform.translation.x = x_f
         tf_msg.transform.translation.y = y_f
         tf_msg.transform.translation.z = z_f
-        tf_msg.transform.rotation = orient
+        tf_msg.transform.rotation = orient_f
 
         self.tf_broadcaster.sendTransform(tf_msg)
 
